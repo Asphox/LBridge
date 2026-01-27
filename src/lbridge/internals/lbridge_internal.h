@@ -14,6 +14,14 @@ extern "C" {
 #define LBRIDGE_WRITE_BIT_U32(var, bit, state) \
     ((var) = ((var) & ~(1U << (bit))) | ((uint32_t)(state) << (bit)))
 
+#ifndef min
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+
+#ifndef max
+#define max(a, b) (((a) > (b)) ? (a) : (b))
+#endif
+
 enum lbridge_backend_operation
 {
 	LBRIDGE_OP_NONE = 0,

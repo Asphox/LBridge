@@ -30,7 +30,7 @@ add_library(lbridge STATIC ${LBRIDGE_SOURCES})
 set_target_properties(lbridge PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED ON
-    C_EXTENSIONS OFF
+    C_EXTENSIONS ON
 )
 
 # Include directories
@@ -65,6 +65,7 @@ else()
     target_compile_options(lbridge PRIVATE
         -Wall
         -Wextra
+        -fms-extensions
         $<$<CONFIG:Release>:-O2>
     )
 endif()
