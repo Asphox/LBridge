@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure CMake
-        run: cmake -B build -G "${{ matrix.generator }}" -A x64 -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+        run: cmake -B build -G "${{ matrix.generator }}" -A x64 -DCMAKE_SYSTEM_VERSION=10.0.19041.0 -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
 
       - name: Build
         run: cmake --build build --config Release
