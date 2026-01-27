@@ -33,10 +33,17 @@
 
 ## Building
 
-### Visual Studio (Windows)
+### CMake
 
 ```bash
-msbuild LBridge.sln /p:Configuration=Release /p:Platform=x64
+# Configure
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+# Build
+cmake --build build --config Release
+
+# Run tests
+./build/bin/lbridge_test
 ```
 
 ### Compile-time Options
