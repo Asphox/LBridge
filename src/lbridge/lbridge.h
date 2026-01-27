@@ -53,14 +53,19 @@ extern "C" {
 	// Microsoft Visual C++
 #define LBRIDGE_API __cdecl
 #elif defined(__GNUC__) || defined(__clang__)
-	// GCC or Clang
+	// GCC or Clang - cdecl only meaningful on x86
+#if defined(__i386__)
 #define LBRIDGE_API __attribute__((cdecl))
+#else
+#define LBRIDGE_API
+#endif
 #else
 	// Fallback for other compilers
 #define LBRIDGE_API
 #endif
 
 #include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
 
 /**

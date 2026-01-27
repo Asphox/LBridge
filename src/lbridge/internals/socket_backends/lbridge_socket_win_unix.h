@@ -40,12 +40,15 @@ inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking)
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/ioctl.h>
+#include <sys/select.h>
+#include <sys/time.h>
 #include <poll.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <string.h>
 
 typedef int socket_t;
 #define POLL_SOCKET poll
