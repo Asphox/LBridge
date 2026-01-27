@@ -7,34 +7,84 @@ on:
     branches: [master, main]
 
 jobs:
-  test:
+  test-windows:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            preset: ci-windows
-            test-path: build/ci-windows/bin/lbridge_test.exe
-          - os: ubuntu-latest
-            preset: ci-unix
-            test-path: build/ci-unix/bin/lbridge_test
-          - os: macos-latest
-            preset: ci-unix
-            test-path: build/ci-unix/bin/lbridge_test
+          - name: MSVC 2022
+            os: windows-2022
+            generator: Visual Studio 17 2022
+          - name: MSVC 2019
+            os: windows-2019
+            generator: Visual Studio 16 2019
 
     runs-on: ${{ matrix.os }}
-    name: Test on ${{ matrix.os }}
+    name: Windows - ${{ matrix.name }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure CMake
-        run: cmake --preset ${{ matrix.preset }}
+        run: cmake -B build -G "${{ matrix.generator }}" -A x64 -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
 
       - name: Build
-        run: cmake --build build/${{ matrix.preset }} --config Release
+        run: cmake --build build --config Release
 
       - name: Run tests
-        run: ./${{ matrix.test-path }}
+        run: ./build/bin/lbridge_test.exe
         shell: bash
+
+  test-windows-mingw:
+    runs-on: windows-latest
+    name: Windows - MinGW
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake make
+
+      - name: Configure CMake
+        shell: msys2 {0}
+        run: cmake -B build -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build
+
+      - name: Run tests
+        shell: msys2 {0}
+        run: ./build/bin/lbridge_test.exe
+
+  test-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux
+          - os: macos-latest
+            name: macOS
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: ./build/bin/lbridge_test
