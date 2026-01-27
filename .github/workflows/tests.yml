@@ -14,7 +14,7 @@ jobs:
         include:
           - os: windows-latest
             preset: ci-windows
-            test-path: build/ci-windows/bin/Release/lbridge_test.exe
+            test-path: build/ci-windows/bin/lbridge_test.exe
           - os: ubuntu-latest
             preset: ci-unix
             test-path: build/ci-unix/bin/lbridge_test
