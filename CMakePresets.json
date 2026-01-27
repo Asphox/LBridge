@@ -7,6 +7,33 @@
     },
     "configurePresets": [
         {
+            "name": "base-windows",
+            "hidden": true,
+            "generator": "Visual Studio 17 2022",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "cacheVariables": {
+                "LBRIDGE_ENABLE_SECURE": "ON"
+            }
+        },
+        {
+            "name": "base-unix",
+            "hidden": true,
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "condition": {
+                "type": "notEquals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            },
+            "cacheVariables": {
+                "LBRIDGE_ENABLE_SECURE": "ON"
+            }
+        },
+        {
             "name": "base",
             "hidden": true,
             "generator": "Visual Studio 17 2022",
@@ -118,6 +145,28 @@
                 "CMAKE_BUILD_TYPE": "Release",
                 "LBRIDGE_BUILD_TESTS": "ON"
             }
+        },
+        {
+            "name": "ci-windows",
+            "displayName": "CI - Windows",
+            "inherits": "base-windows",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "LBRIDGE_BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "ci-unix",
+            "displayName": "CI - Linux/macOS",
+            "inherits": "base-unix",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "LBRIDGE_BUILD_TESTS": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -159,6 +208,16 @@
         {
             "name": "test-release-x64",
             "configurePreset": "test-release-x64",
+            "configuration": "Release"
+        },
+        {
+            "name": "ci-windows",
+            "configurePreset": "ci-windows",
+            "configuration": "Release"
+        },
+        {
+            "name": "ci-unix",
+            "configurePreset": "ci-unix",
             "configuration": "Release"
         }
     ]

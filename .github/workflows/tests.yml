@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            preset: ci-windows
+            test-path: build/ci-windows/bin/Release/lbridge_test.exe
+          - os: ubuntu-latest
+            preset: ci-unix
+            test-path: build/ci-unix/bin/lbridge_test
+          - os: macos-latest
+            preset: ci-unix
+            test-path: build/ci-unix/bin/lbridge_test
+
+    runs-on: ${{ matrix.os }}
+    name: Test on ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build build/${{ matrix.preset }} --config Release
+
+      - name: Run tests
+        run: ${{ matrix.test-path }}
