@@ -112,7 +112,7 @@ struct lbridge_connection
 // used mainly by servers to manage multiple client connections
 struct lbridge_connection_async
 {
-	struct lbridge_connection;
+	struct lbridge_connection			base;
 	uint8_t*							receive_buffer;
 	uint32_t							receive_buffer_used_size;
 	lbridge_frame_header_t				current_frame_header;
@@ -160,13 +160,13 @@ struct lbridge_object
 
 struct lbridge_client
 {
-	struct lbridge_object;
+	struct lbridge_object		base;
 	struct lbridge_connection	connection;
 };
 
 struct lbridge_server
 {
-	struct lbridge_object;
+	struct lbridge_object					base;
 	struct lbridge_connection_async_vector	connections;
 	void*									backend_data;
 	fp_rpc_call								rpc_call;

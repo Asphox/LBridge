@@ -44,12 +44,12 @@ bool lbridge_tcp_client_impl_connect(struct lbridge_client* p_client, void* arg)
 	FD_ZERO(&wfds);
 	FD_SET(s, &wfds);
 	struct timeval tv;
-	tv.tv_sec = p_client->timeout_ms / 1000;
-	tv.tv_usec = (p_client->timeout_ms % 1000) * 1000;
-	const int rc = select((int)(s + 1), NULL, &wfds, NULL, (p_client->timeout_ms >= 0 ? &tv : NULL));
+	tv.tv_sec = p_client->base.timeout_ms / 1000;
+	tv.tv_usec = (p_client->base.timeout_ms % 1000) * 1000;
+	const int rc = select((int)(s + 1), NULL, &wfds, NULL, (p_client->base.timeout_ms >= 0 ? &tv : NULL));
 	if (rc == 0)
 	{
-		p_client->last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
+		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
 		CLOSE_SOCKET(s);
 		return false;
 	}
@@ -61,13 +61,13 @@ bool lbridge_tcp_client_impl_connect(struct lbridge_client* p_client, void* arg)
 		switch (err_select)
 		{
 		case LBRIDGE_ECONNREFUSED:
-			p_client->last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
 			break;
 		case LBRIDGE_ETIMEDOUT:
-			p_client->last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
 			break;
 		default:
-			p_client->last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
 			break;
 		}
 
@@ -109,14 +109,14 @@ bool lbridge_tcp_server_impl_open(struct lbridge_server* p_server, void* arg)
 	addr.sin_port = htons(connection_data->port);
 	if (inet_pton(AF_INET, connection_data->host, &addr.sin_addr) <= 0)
 	{
-		p_server->last_error = LBRIDGE_ERROR_BAD_ARGUMENT;
+		p_server->base.last_error = LBRIDGE_ERROR_BAD_ARGUMENT;
 		return false;
 	}
 
 	socket_t s = socket(AF_INET, SOCK_STREAM, 0);
 	if (!IS_VALID_SOCKET(s))
 	{
-		p_server->last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
+		p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
 		return false;
 	}
 
@@ -126,7 +126,7 @@ bool lbridge_tcp_server_impl_open(struct lbridge_server* p_server, void* arg)
 
 	if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) != 0)
 	{
-		p_server->last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
+		p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
 		CLOSE_SOCKET(s);
 		return false;
 	}
@@ -134,13 +134,13 @@ bool lbridge_tcp_server_impl_open(struct lbridge_server* p_server, void* arg)
 	if (!lbridge_socket_set_nonblocking(s, true))
 	{
 		CLOSE_SOCKET(s);
-		p_server->last_error = LBRIDGE_ERROR_UNKNOWN;
+		p_server->base.last_error = LBRIDGE_ERROR_UNKNOWN;
 		return false;
 	}
 
 	if (listen(s, SOMAXCONN) != 0)
 	{
-		p_server->last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
+		p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
 		CLOSE_SOCKET(s);
 		return false;
 	}
@@ -173,7 +173,7 @@ bool lbridge_tcp_server_impl_accept(struct lbridge_server* p_server, void* arg)
 	socket_t server_socket = (socket_t)(p_server->backend_data);
 	if (!IS_VALID_SOCKET(server_socket))
 	{
-		p_server->last_error = LBRIDGE_ERROR_NOT_CONNECTED;
+		p_server->base.last_error = LBRIDGE_ERROR_NOT_CONNECTED;
 		return false;
 	}
 	struct sockaddr_in client_addr;
@@ -354,7 +354,7 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 	size_t path_len = strlen(connection_data->socket_path);
 	if (path_len >= sizeof(addr.sun_path))
 	{
-		p_client->last_error = LBRIDGE_ERROR_BAD_ARGUMENT;
+		p_client->base.last_error = LBRIDGE_ERROR_BAD_ARGUMENT;
 		return false;
 	}
 	memcpy(addr.sun_path, connection_data->socket_path, path_len);
@@ -363,14 +363,14 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 	socket_t s = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (!IS_VALID_SOCKET(s))
 	{
-		p_client->last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
+		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
 		return false;
 	}
 
 	if (!lbridge_socket_set_nonblocking(s, true))
 	{
 		CLOSE_SOCKET(s);
-		p_client->last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
+		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
 		return false;
 	}
 
@@ -380,7 +380,7 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 		if (err_connection != LBRIDGE_EINPROGRESS && err_connection != LBRIDGE_EWOULDBLOCK)
 		{
 			CLOSE_SOCKET(s);
-			p_client->last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
 			return false;
 		}
 	}
@@ -390,12 +390,12 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 	FD_ZERO(&wfds);
 	FD_SET(s, &wfds);
 	struct timeval tv;
-	tv.tv_sec = p_client->timeout_ms / 1000;
-	tv.tv_usec = (p_client->timeout_ms % 1000) * 1000;
-	const int rc = select((int)(s + 1), NULL, &wfds, NULL, (p_client->timeout_ms >= 0 ? &tv : NULL));
+	tv.tv_sec = p_client->base.timeout_ms / 1000;
+	tv.tv_usec = (p_client->base.timeout_ms % 1000) * 1000;
+	const int rc = select((int)(s + 1), NULL, &wfds, NULL, (p_client->base.timeout_ms >= 0 ? &tv : NULL));
 	if (rc == 0)
 	{
-		p_client->last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
+		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
 		CLOSE_SOCKET(s);
 		return false;
 	}
@@ -408,13 +408,13 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 		switch (err_select)
 		{
 		case LBRIDGE_ECONNREFUSED:
-			p_client->last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
 			break;
 		case LBRIDGE_ETIMEDOUT:
-			p_client->last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
 			break;
 		default:
-			p_client->last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
 			break;
 		}
 		CLOSE_SOCKET(s);
@@ -460,7 +460,7 @@ bool lbridge_unix_server_impl_open(struct lbridge_server* p_server, void* arg)
 	size_t path_len = strlen(server_data->socket_path);
 	if (path_len >= sizeof(addr.sun_path))
 	{
-		p_server->last_error = LBRIDGE_ERROR_BAD_ARGUMENT;
+		p_server->base.last_error = LBRIDGE_ERROR_BAD_ARGUMENT;
 		return false;
 	}
 	memcpy(addr.sun_path, server_data->socket_path, path_len);
@@ -476,13 +476,13 @@ bool lbridge_unix_server_impl_open(struct lbridge_server* p_server, void* arg)
 	socket_t s = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (!IS_VALID_SOCKET(s))
 	{
-		p_server->last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
+		p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
 		return false;
 	}
 
 	if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) != 0)
 	{
-		p_server->last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
+		p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
 		CLOSE_SOCKET(s);
 		return false;
 	}
@@ -491,13 +491,13 @@ bool lbridge_unix_server_impl_open(struct lbridge_server* p_server, void* arg)
 	if (!lbridge_socket_set_nonblocking(s, true))
 	{
 		CLOSE_SOCKET(s);
-		p_server->last_error = LBRIDGE_ERROR_UNKNOWN;
+		p_server->base.last_error = LBRIDGE_ERROR_UNKNOWN;
 		return false;
 	}
 
 	if (listen(s, SOMAXCONN) != 0)
 	{
-		p_server->last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
+		p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
 		CLOSE_SOCKET(s);
 		return false;
 	}
@@ -530,7 +530,7 @@ bool lbridge_unix_server_impl_accept(struct lbridge_server* p_server, void* arg)
 	socket_t server_socket = (socket_t)(p_server->backend_data);
 	if (!IS_VALID_SOCKET(server_socket))
 	{
-		p_server->last_error = LBRIDGE_ERROR_NOT_CONNECTED;
+		p_server->base.last_error = LBRIDGE_ERROR_NOT_CONNECTED;
 		return false;
 	}
 

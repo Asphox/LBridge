@@ -541,14 +541,14 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 	// Handshake frame: start=1, end=1, cmd=1, opcode=HELLO
 	// <!> payload length indicates the size of the payload only for the handshake frame <!>
 	// payload: - none if no crypted transfert
-	//			- 12 bytes of random nonce if crypted transfert 
+	//			- 12 bytes of random nonce if crypted transfert
 	uint8_t raw_data[sizeof(struct lbridge_frame) + 12] = {0};
 	struct lbridge_frame* handshake_frame = (struct lbridge_frame*)raw_data;
 	__lbridge_frame_set_start(handshake_frame, true);
 	__lbridge_frame_set_end(handshake_frame, true);
 	__lbridge_frame_set_cmd(handshake_frame, true);
 #if defined(LBRIDGE_ENABLE_SECURE)
-	const bool encryption_needed = !!(p_client->encryption_key_256bits != NULL);
+	const bool encryption_needed = !!(p_client->base.encryption_key_256bits != NULL);
 #else
 	const bool encryption_needed = false;
 #endif // LBRIDGE_ENABLE_SECURE
@@ -557,7 +557,7 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 	command_data |= ((uint16_t)LBRIDGE_FRAME_HEADER_CMD_HELLO_OPCODE << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_OFFSET);
 	command_data |= ((uint16_t)(encryption_needed ? 1 : 0) << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_OFFSET); // no encryption
 	__lbridge_frame_set_cmd_data(handshake_frame, command_data);
-	__lbridge_frame_set_payload_length(handshake_frame, p_client->max_frame_payload_size); // in the handshake only, the payload length indicates the size of the max data size field (2 bytes)
+	__lbridge_frame_set_payload_length(handshake_frame, p_client->base.max_frame_payload_size); // in the handshake only, the payload length indicates the size of the max data size field (2 bytes)
 	if(!__lbridge_send_data(p_client, (const uint8_t*)handshake_frame, sizeof(struct lbridge_frame), &p_client->connection))
 	{
 		return false;
@@ -614,13 +614,13 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 	}
 
 	const uint16_t negotiated_max_payload_len = __lbridge_frame_get_payload_length(handshake_frame);
-	if (negotiated_max_payload_len > p_client->max_frame_payload_size)
+	if (negotiated_max_payload_len > p_client->base.max_frame_payload_size)
 	{
 		// server requested more data size than we can handle
 		__lbridge_object_set_error(p_client, LBRIDGE_ERROR_HANDSHAKE_FAILED);
 		return false;
 	}
-	p_client->max_frame_payload_size = negotiated_max_payload_len;
+	p_client->base.max_frame_payload_size = negotiated_max_payload_len;
 
 #if defined(LBRIDGE_ENABLE_SECURE)
 	// if encryption is needed, xor the server nonce with client nonce to create the final nonce
@@ -654,18 +654,18 @@ lbridge_client_t lbridge_client_create(lbridge_context_t p_context, uint16_t max
 		return NULL;
 	}
 	__lbridge_object_set_error(p_client, LBRIDGE_ERROR_NONE);
-	p_client->context = ctx;
-	p_client->type = LBRIDGE_TYPE_UNKNOWN;
-	p_client->object_type = LBRIDGE_CLIENT;
-	p_client->timeout_ms = -1;
+	p_client->base.context = ctx;
+	p_client->base.type = LBRIDGE_TYPE_UNKNOWN;
+	p_client->base.object_type = LBRIDGE_CLIENT;
+	p_client->base.timeout_ms = -1;
 	memset(&p_client->connection, 0, sizeof(p_client->connection));
 	p_client->connection.waiting_handshake = true;
-	p_client->backend = NULL;
+	p_client->base.backend = NULL;
 #if defined(LBRIDGE_ENABLE_SECURE)
-	p_client->encryption_key_256bits = NULL;
+	p_client->base.encryption_key_256bits = NULL;
 #endif // LBRIDGE_ENABLE_SECURE
-	p_client->max_frame_payload_size = max_frame_payload_size;
-	p_client->max_payload_size = max_payload_size;
+	p_client->base.max_frame_payload_size = max_frame_payload_size;
+	p_client->base.max_payload_size = max_payload_size;
 	return p_client;
 }
 
@@ -679,9 +679,9 @@ void lbridge_client_destroy(lbridge_client_t p_client)
 		__lbridge_close(p_client, &p_client->connection, LBRIDGE_PROTOCOL_ERROR_NONE);
 	}
 
-	if (p_client->backend != NULL)
+	if (p_client->base.backend != NULL)
 	{
-		p_client->backend(LBRIDGE_OP_CLIENT_CLEANUP, p_client, NULL);
+		p_client->base.backend(LBRIDGE_OP_CLIENT_CLEANUP, p_client, NULL);
 	}
 
 	struct lbridge_context* context = __lbridge_object_get_context(p_client);
@@ -761,12 +761,12 @@ bool lbridge_client_connect_tcp(lbridge_client_t p_client, const char* host, uin
 		return false;
 	}
 	__lbridge_object_set_error(p_client, LBRIDGE_ERROR_NONE);
-	p_client->type					= LBRIDGE_TYPE_TCP;
-	p_client->backend				= &lbridge_backend_tcp_impl;
+	p_client->base.type				= LBRIDGE_TYPE_TCP;
+	p_client->base.backend			= &lbridge_backend_tcp_impl;
 	struct lbridge_tcp_connection_data connection_data;
 	connection_data.host = host;
 	connection_data.port = port;
-	const bool connected = p_client->backend(LBRIDGE_OP_CLIENT_CONNECT, p_client, &connection_data);
+	const bool connected = p_client->base.backend(LBRIDGE_OP_CLIENT_CONNECT, p_client, &connection_data);
 	if (!connected)
 	{
 		return false;
@@ -784,11 +784,11 @@ bool lbridge_client_connect_unix(lbridge_client_t p_client, const char* socket_p
 		return false;
 	}
 	__lbridge_object_set_error(p_client, LBRIDGE_ERROR_NONE);
-	p_client->type = LBRIDGE_TYPE_UNIX;
-	p_client->backend = &lbridge_backend_unix_impl;
+	p_client->base.type = LBRIDGE_TYPE_UNIX;
+	p_client->base.backend = &lbridge_backend_unix_impl;
 	struct lbridge_unix_connection_data connection_data;
 	connection_data.socket_path = socket_path;
-	const bool connected = p_client->backend(LBRIDGE_OP_CLIENT_CONNECT, p_client, &connection_data);
+	const bool connected = p_client->base.backend(LBRIDGE_OP_CLIENT_CONNECT, p_client, &connection_data);
 	if (!connected)
 	{
 		return false;
@@ -813,18 +813,18 @@ lbridge_server_t lbridge_server_create(lbridge_context_t p_context, uint16_t max
 		return NULL;
 	}
 	__lbridge_object_set_error(p_server, LBRIDGE_ERROR_NONE);
-	p_server->context = context;
-	p_server->type = LBRIDGE_TYPE_UNKNOWN;
-	p_server->object_type = LBRIDGE_SERVER;
-	p_server->timeout_ms = 0; // Non-blocking by default for server operations
+	p_server->base.context = context;
+	p_server->base.type = LBRIDGE_TYPE_UNKNOWN;
+	p_server->base.object_type = LBRIDGE_SERVER;
+	p_server->base.timeout_ms = 0; // Non-blocking by default for server operations
 	p_server->rpc_call = on_rpc_call;
-	p_server->backend = NULL;
+	p_server->base.backend = NULL;
 	p_server->backend_data = NULL;
 #if defined(LBRIDGE_ENABLE_SECURE)
-	p_server->encryption_key_256bits = NULL;
+	p_server->base.encryption_key_256bits = NULL;
 #endif // LBRIDGE_ENABLE_SECURE
-	p_server->max_frame_payload_size = max_frame_payload_size;
-	p_server->max_payload_size = max_payload_size;
+	p_server->base.max_frame_payload_size = max_frame_payload_size;
+	p_server->base.max_payload_size = max_payload_size;
 	p_server->connections.capacity = 0;
 	p_server->connections.size = 0;
 	p_server->connections.array = NULL;
@@ -856,7 +856,7 @@ void lbridge_server_destroy(lbridge_server_t p_server)
 		for(uint32_t i_connection = 0; i_connection < p_server->connections.size; ++i_connection)
 		{
 			struct lbridge_connection_async* p_connection = &p_server->connections.array[i_connection];
-			if (p_connection->connected)
+			if (p_connection->base.connected)
 			{
 				__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_NONE);
 			}
@@ -865,9 +865,9 @@ void lbridge_server_destroy(lbridge_server_t p_server)
 	}
 
 	// Close the listening socket
-	if (p_server->backend != NULL && p_server->backend_data != NULL)
+	if (p_server->base.backend != NULL && p_server->backend_data != NULL)
 	{
-		p_server->backend(LBRIDGE_OP_SERVER_CLOSE, p_server, NULL);
+		p_server->base.backend(LBRIDGE_OP_SERVER_CLOSE, p_server, NULL);
 	}
 
 	struct lbridge_context* context = __lbridge_object_get_context(p_server);
@@ -921,7 +921,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	// next 2 bytes are max payload size per frame supported by client
 	// the negotiated value is the minimum between server and client capabilities
 	const uint16_t client_max_frame_payload_size = __lbridge_frame_get_payload_length(handshake_frame);
-	const uint16_t negotiated_max_payload_size = min(client_max_frame_payload_size, p_server->max_frame_payload_size);
+	const uint16_t negotiated_max_payload_size = min(client_max_frame_payload_size, p_server->base.max_frame_payload_size);
 
 	// if encryption requested, we check the 12 bytes of nonce
 	const bool client_encryption_flag = (cmd_data & LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_MASK) != 0;
@@ -929,7 +929,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	{
 #if defined(LBRIDGE_ENABLE_SECURE)
 		// if server has no encryption key, we cannot proceed
-		if (p_server->encryption_key_256bits == NULL)
+		if (p_server->base.encryption_key_256bits == NULL)
 		{
 			__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_ENCRYPTION_NOT_ACTIVATED_ON_SERVER);
 			return false;
@@ -957,11 +957,11 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 		for (uint8_t i = 0; i < 12; ++i)
 		{
 			// we XOR client nonce and server nonce to create shared nonce
-			p_connection->counters.send.full_nonce[i] = server_nonce[i] ^ raw_data[sizeof(struct lbridge_frame) + i];
-			p_connection->counters.receive.full_nonce[i] = p_connection->counters.send.full_nonce[i];
+			p_connection->base.counters.send.full_nonce[i] = server_nonce[i] ^ raw_data[sizeof(struct lbridge_frame) + i];
+			p_connection->base.counters.receive.full_nonce[i] = p_connection->base.counters.send.full_nonce[i];
 		}
 		// inverts the 64-th bit of nonce_counter_receive to differenciate both counters
-		p_connection->counters.send.value ^= (1ULL << 63);
+		p_connection->base.counters.send.value ^= (1ULL << 63);
 		// prepare the server nonce to be sent to client
 		for (uint8_t i = 0; i < 12; ++i)
 		{
@@ -969,7 +969,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 		}
 
 		mbedtls_chachapoly_init(&p_connection->chachapoly_ctx);
-		mbedtls_chachapoly_setkey(&p_connection->chachapoly_ctx, p_server->encryption_key_256bits);
+		mbedtls_chachapoly_setkey(&p_connection->chachapoly_ctx, p_server->base.encryption_key_256bits);
 #else
 		__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_ENCRYPTION_NOT_SUPPORTED_ON_SERVER);
 		return false;
@@ -992,8 +992,8 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	}
 
 	// process handshake frame
-	p_connection->waiting_handshake = false;
-	p_connection->connected = true;
+	p_connection->base.waiting_handshake = false;
+	p_connection->base.connected = true;
 	return true;
 }
 
@@ -1034,12 +1034,12 @@ bool LBRIDGE_API lbridge_server_listen_tcp(lbridge_server_t p_server, const char
 		return false;
 	}
 
-	p_server->type = LBRIDGE_TYPE_TCP;
-	p_server->backend = &lbridge_backend_tcp_impl;
+	p_server->base.type = LBRIDGE_TYPE_TCP;
+	p_server->base.backend = &lbridge_backend_tcp_impl;
 	struct lbridge_tcp_connection_data connection_data;
 	connection_data.host = address;
 	connection_data.port = port;
-	const bool connected = p_server->backend(LBRIDGE_OP_SERVER_OPEN, p_server, &connection_data);
+	const bool connected = p_server->base.backend(LBRIDGE_OP_SERVER_OPEN, p_server, &connection_data);
 	if (!connected)
 	{
 		__lbridge_server_free_connections(p_server);
@@ -1065,11 +1065,11 @@ bool LBRIDGE_API lbridge_server_listen_unix(lbridge_server_t p_server, const cha
 		return false;
 	}
 
-	p_server->type = LBRIDGE_TYPE_UNIX;
-	p_server->backend = &lbridge_backend_unix_impl;
+	p_server->base.type = LBRIDGE_TYPE_UNIX;
+	p_server->base.backend = &lbridge_backend_unix_impl;
 	struct lbridge_unix_server_data server_data;
 	server_data.socket_path = socket_path;
-	const bool connected = p_server->backend(LBRIDGE_OP_SERVER_OPEN, p_server, &server_data);
+	const bool connected = p_server->base.backend(LBRIDGE_OP_SERVER_OPEN, p_server, &server_data);
 	if (!connected)
 	{
 		__lbridge_server_free_connections(p_server);
@@ -1087,7 +1087,7 @@ void __lbridge_server_remove_connection(lbridge_server_t p_server, uint32_t inde
 		return;
 	}
 	struct lbridge_connection_async* connection = &p_server->connections.array[index];
-	if (connection->connected)
+	if (connection->base.connected)
 	{
 		__lbridge_close(p_server, (struct lbridge_connection*)connection, error);
 	}
@@ -1117,16 +1117,16 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 			break;
 		struct lbridge_connection_async connection;
 		memset(&connection, 0, sizeof(connection));
-		connection.connected = false;
-		connection.waiting_handshake = false;
+		connection.base.connected = false;
+		connection.base.waiting_handshake = false;
 		accept_data.new_connection = (struct lbridge_connection*)&connection;
 		accept_data.new_client_accepted = false;
-		if (!p_server->backend(LBRIDGE_OP_SERVER_ACCEPT, p_server, &accept_data))
+		if (!p_server->base.backend(LBRIDGE_OP_SERVER_ACCEPT, p_server, &accept_data))
 			return false;
 		if (accept_data.new_client_accepted)
 		{
-			connection.connected = true;
-			connection.waiting_handshake = true;
+			connection.base.connected = true;
+			connection.base.waiting_handshake = true;
 			// Initialize last activity timestamp if time callback is available
 			struct lbridge_context* ctx = __lbridge_object_get_context(p_server);
 			if (ctx->params.fp_get_time_ms != NULL)
@@ -1152,7 +1152,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 		struct lbridge_connection_async* connection = &p_server->connections.array[i_connection];
 
 		// Check for client timeout
-		if (timeout_enabled && connection->connected && !connection->waiting_handshake)
+		if (timeout_enabled && connection->base.connected && !connection->base.waiting_handshake)
 		{
 			const uint64_t elapsed_ms = current_time_ms - connection->last_activity_ms;
 			if (elapsed_ms >= p_server->client_timeout_ms)
@@ -1162,13 +1162,13 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 			}
 		}
 		// Check if client is disconnected
-		if (!connection->connected && !connection->waiting_handshake)
+		if (!connection->base.connected && !connection->base.waiting_handshake)
 		{
 			__lbridge_server_remove_connection(p_server, i_connection, LBRIDGE_PROTOCOL_ERROR_NONE);
 			continue; // connection removed, don't increment i_connection
 		}
 
-		if (connection->waiting_handshake)
+		if (connection->base.waiting_handshake)
 		{
 			if (!__lbridge_server_handshake(p_server, connection))
 			{
@@ -1176,15 +1176,15 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 				goto lbl_next_connection;
 			}
 			// Update activity timestamp after successful handshake
-			if (timeout_enabled && connection->connected)
+			if (timeout_enabled && connection->base.connected)
 			{
 				connection->last_activity_ms = current_time_ms;
 			}
 		}
-		else if(connection->connected)
+		else if(connection->base.connected)
 		{
 			uint8_t* data_received = NULL;
-			while (connection->connected)
+			while (connection->base.connected)
 			{
 				// check if there is data to process
 				if(connection->current_frame_header == 0)
@@ -1219,7 +1219,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 						{
 							enum lbridge_protocol_error error = (enum lbridge_protocol_error)((cmd_data >> 8) & 0xFF);
 							(void)error;  // error received from client (can be logged if needed)
-							connection->connected = false;
+							connection->base.connected = false;
 							__lbridge_server_remove_connection(p_server, i_connection, LBRIDGE_PROTOCOL_ERROR_NONE);
 							goto lbl_next_connection;
 						}
@@ -1237,7 +1237,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 					{
 						// allocate receive buffer
 						struct lbridge_context* context = __lbridge_object_get_context(p_server);
-						connection->receive_buffer = context->params.fp_malloc(p_server->max_payload_size);
+						connection->receive_buffer = context->params.fp_malloc(p_server->base.max_payload_size);
 						if (connection->receive_buffer == NULL)
 						{
 							__lbridge_server_remove_connection(p_server, i_connection, LBRIDGE_PROTOCOL_ERROR_INTERNAL);
@@ -1247,12 +1247,12 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 					}
 #if defined(LBRIDGE_ENABLE_SECURE)
 					// if encryption is enabled, prepare/append decryption context for the sequence
-					if (p_server->encryption_key_256bits != NULL)
+					if (p_server->base.encryption_key_256bits != NULL)
 					{
 						// if new sequence, start cha-cha-poly context
 						if (connection->receive_buffer_used_size == 0)
 						{
-							mbedtls_chachapoly_starts(&connection->chachapoly_ctx, connection->counters.receive.full_nonce, MBEDTLS_CHACHAPOLY_DECRYPT);
+							mbedtls_chachapoly_starts(&connection->chachapoly_ctx, connection->base.counters.receive.full_nonce, MBEDTLS_CHACHAPOLY_DECRYPT);
 						}
 
 						// add header to AAD
@@ -1287,7 +1287,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 					{
 						// if encryption is enabled, finalize decryption
 #if defined(LBRIDGE_ENABLE_SECURE)
-						if (p_server->encryption_key_256bits != NULL)
+						if (p_server->base.encryption_key_256bits != NULL)
 						{
 							if (connection->receive_buffer_used_size < 8)
 							{
@@ -1309,7 +1309,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 							// zero the remaining buffer for security
 							memset(connection->receive_buffer + pure_data_size, 0, 8);
 							// increment receive counter
-							connection->counters.receive.value++;
+							connection->base.counters.receive.value++;
 						}
 #endif // LBRIDGE_ENABLE_SECURE
 
