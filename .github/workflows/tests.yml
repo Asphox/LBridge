@@ -35,6 +35,7 @@ jobs:
       - name: Run tests
         run: ./build/bin/lbridge_test.exe
         shell: bash
+        timeout-minutes: 2
 
   test-windows-mingw:
     runs-on: windows-latest
@@ -62,6 +63,7 @@ jobs:
       - name: Run tests
         shell: msys2 {0}
         run: ./build/bin/lbridge_test.exe
+        timeout-minutes: 2
 
   test-unix:
     strategy:
@@ -88,3 +90,4 @@ jobs:
 
       - name: Run tests
         run: ./build/bin/lbridge_test
+        timeout-minutes: 2
