@@ -1,0 +1,165 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 16,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Visual Studio 17 2022",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "LBRIDGE_ENABLE_SECURE": "ON"
+            }
+        },
+        {
+            "name": "lib-debug-x86",
+            "displayName": "Static Lib - Debug x86",
+            "inherits": "base",
+            "architecture": {
+                "value": "Win32",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "LBRIDGE_BUILD_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "lib-debug-x64",
+            "displayName": "Static Lib - Debug x64",
+            "inherits": "base",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "LBRIDGE_BUILD_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "lib-release-x86",
+            "displayName": "Static Lib - Release x86",
+            "inherits": "base",
+            "architecture": {
+                "value": "Win32",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "LBRIDGE_BUILD_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "lib-release-x64",
+            "displayName": "Static Lib - Release x64",
+            "inherits": "base",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "LBRIDGE_BUILD_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "test-debug-x86",
+            "displayName": "Test Exe - Debug x86",
+            "inherits": "base",
+            "architecture": {
+                "value": "Win32",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "LBRIDGE_BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "test-debug-x64",
+            "displayName": "Test Exe - Debug x64",
+            "inherits": "base",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "LBRIDGE_BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "test-release-x86",
+            "displayName": "Test Exe - Release x86",
+            "inherits": "base",
+            "architecture": {
+                "value": "Win32",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "LBRIDGE_BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "test-release-x64",
+            "displayName": "Test Exe - Release x64",
+            "inherits": "base",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "LBRIDGE_BUILD_TESTS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "lib-debug-x86",
+            "configurePreset": "lib-debug-x86",
+            "configuration": "Debug"
+        },
+        {
+            "name": "lib-debug-x64",
+            "configurePreset": "lib-debug-x64",
+            "configuration": "Debug"
+        },
+        {
+            "name": "lib-release-x86",
+            "configurePreset": "lib-release-x86",
+            "configuration": "Release"
+        },
+        {
+            "name": "lib-release-x64",
+            "configurePreset": "lib-release-x64",
+            "configuration": "Release"
+        },
+        {
+            "name": "test-debug-x86",
+            "configurePreset": "test-debug-x86",
+            "configuration": "Debug"
+        },
+        {
+            "name": "test-debug-x64",
+            "configurePreset": "test-debug-x64",
+            "configuration": "Debug"
+        },
+        {
+            "name": "test-release-x86",
+            "configurePreset": "test-release-x86",
+            "configuration": "Release"
+        },
+        {
+            "name": "test-release-x64",
+            "configurePreset": "test-release-x64",
+            "configuration": "Release"
+        }
+    ]
+}
