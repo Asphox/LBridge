@@ -7,30 +7,41 @@ on:
     branches: [master, main]
 
 jobs:
-  test-windows:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: MSVC 2022
-            os: windows-2022
-            generator: Visual Studio 17 2022
-          - name: MSVC 2019
-            os: windows-2019
-            generator: Visual Studio 16 2019
-
-    runs-on: ${{ matrix.os }}
-    name: Windows - ${{ matrix.name }}
+  test-windows-msvc:
+    runs-on: windows-2022
+    name: Windows - MSVC 2022
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure CMake
-        run: cmake -B build -G "${{ matrix.generator }}" -A x64 -DCMAKE_SYSTEM_VERSION=10.0.19041.0 -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
 
       - name: Build
         run: cmake --build build --config Release
+
+      - name: Run tests
+        run: ./build/bin/lbridge_test.exe
+        shell: bash
+        timeout-minutes: 2
+
+  test-windows-clang:
+    runs-on: windows-latest
+    name: Windows - Clang
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Clang
+        run: choco install llvm ninja -y
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+
+      - name: Build
+        run: cmake --build build
 
       - name: Run tests
         run: ./build/bin/lbridge_test.exe
