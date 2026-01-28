@@ -57,6 +57,7 @@ endif()
 if(MSVC)
     target_compile_options(lbridge PRIVATE
         /W3             # Warning level 3
+        /WX             # Warnings as errors
         /sdl            # SDL checks
         $<$<CONFIG:Release>:/O2>
         $<$<CONFIG:Release>:/GL>    # Whole program optimization
@@ -65,6 +66,7 @@ else()
     target_compile_options(lbridge PRIVATE
         -Wall
         -Wextra
+        -Werror         # Warnings as errors
         $<$<CONFIG:Release>:-O2>
     )
 endif()
@@ -105,7 +107,9 @@ if(LBRIDGE_BUILD_TESTS)
     )
 
     if(MSVC)
-        target_compile_options(lbridge_test PRIVATE /W3 /sdl)
+        target_compile_options(lbridge_test PRIVATE /W3 /WX /sdl)
+    else()
+        target_compile_options(lbridge_test PRIVATE -Wall -Wextra -Werror)
     endif()
 
     set_target_properties(lbridge_test PROPERTIES

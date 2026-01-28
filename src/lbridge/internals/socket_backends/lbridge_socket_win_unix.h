@@ -1,9 +1,15 @@
 #ifndef LBRIDGE_SOCKET_WIN_UNIX_H
 #define LBRIDGE_SOCKET_WIN_UNIX_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Macros for safe socket_t <-> void* casting (avoids warnings on 64-bit Unix)
+#define SOCKET_TO_PTR(s) ((void*)(intptr_t)(s))
+#define PTR_TO_SOCKET(p) ((socket_t)(intptr_t)(p))
 
 #if defined(_WIN32)
 #include <winsock2.h>

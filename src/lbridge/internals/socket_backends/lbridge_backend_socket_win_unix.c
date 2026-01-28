@@ -20,13 +20,13 @@ bool lbridge_tcp_client_impl_connect(struct lbridge_client* p_client, void* arg)
 	if (!IS_VALID_SOCKET(s))
 	{
 		int err = GET_LAST_SOCKET_ERROR();
-		err = err;
+		(void)err;
 		return false;
 	}
 	if (!lbridge_socket_set_nonblocking(s, true))
 	{
 		int err = GET_LAST_SOCKET_ERROR();
-		err = err;
+		(void)err;
 		CLOSE_SOCKET(s);
 		return false;
 	}
@@ -75,13 +75,13 @@ bool lbridge_tcp_client_impl_connect(struct lbridge_client* p_client, void* arg)
 		return false;
 	}
 
-	p_client->connection.as_ptr = (void*)s;
+	p_client->connection.as_ptr = SOCKET_TO_PTR(s);
 	return true;
 }
 
 bool lbridge_tcp_client_impl_disconnect(struct lbridge_client* p_client)
 {
-	socket_t s = (socket_t)(p_client->connection.as_ptr);
+	socket_t s = PTR_TO_SOCKET(p_client->connection.as_ptr);
 	if(IS_VALID_SOCKET(s))
 	{
 		CLOSE_SOCKET(s);
@@ -145,13 +145,13 @@ bool lbridge_tcp_server_impl_open(struct lbridge_server* p_server, void* arg)
 		return false;
 	}
 
-	p_server->backend_data = (void*)s;
+	p_server->backend_data = SOCKET_TO_PTR(s);
 	return true;
 }
 
 bool lbridge_tcp_server_impl_disconnect(struct lbridge_server* p_server)
 {
-	socket_t s = (socket_t)(p_server->backend_data);
+	socket_t s = PTR_TO_SOCKET(p_server->backend_data);
 	if (IS_VALID_SOCKET(s))
 	{
 		CLOSE_SOCKET(s);
@@ -170,7 +170,7 @@ bool lbridge_tcp_server_impl_accept(struct lbridge_server* p_server, void* arg)
 {
 	struct lbridge_server_accept_data* accept_data = (struct lbridge_server_accept_data*)arg;
 	accept_data->new_client_accepted = false;
-	socket_t server_socket = (socket_t)(p_server->backend_data);
+	socket_t server_socket = PTR_TO_SOCKET(p_server->backend_data);
 	if (!IS_VALID_SOCKET(server_socket))
 	{
 		p_server->base.last_error = LBRIDGE_ERROR_NOT_CONNECTED;
@@ -191,11 +191,11 @@ bool lbridge_tcp_server_impl_accept(struct lbridge_server* p_server, void* arg)
 	if (!lbridge_socket_set_nonblocking(client_socket, true))
 	{
 		int err = GET_LAST_SOCKET_ERROR();
-		err = err;
+		(void)err;
 		CLOSE_SOCKET(client_socket);
 		return false;
 	}
-	accept_data->new_connection->as_ptr = (void*)client_socket;
+	accept_data->new_connection->as_ptr = SOCKET_TO_PTR(client_socket);
 	accept_data->new_client_accepted = true;
 	return true;
 }
@@ -206,7 +206,7 @@ bool lbridge_socket_impl_send_data(struct lbridge_object* p_object, void* arg)
 {
 	const struct lbridge_object_send_data* send_data = (const struct lbridge_object_send_data*)arg;
 	const struct lbridge_connection* connection = send_data->connection;
-	socket_t s = (socket_t)(connection->as_ptr);
+	socket_t s = PTR_TO_SOCKET(connection->as_ptr);
 	if (!IS_VALID_SOCKET(s))
 	{
 		p_object->last_error = LBRIDGE_ERROR_NOT_CONNECTED;
@@ -248,7 +248,7 @@ bool lbridge_socket_impl_receive_data(struct lbridge_object* p_object, void* arg
 {
 	struct lbridge_object_receive_data* receive_data = (struct lbridge_object_receive_data*)arg;
 	const struct lbridge_connection* connection = receive_data->connection;
-	socket_t s = (socket_t)(connection->as_ptr);
+	socket_t s = PTR_TO_SOCKET(connection->as_ptr);
 	if (!IS_VALID_SOCKET(s))
 	{
 		p_object->last_error = LBRIDGE_ERROR_NOT_CONNECTED;
@@ -286,7 +286,7 @@ bool lbridge_socket_impl_receive_data(struct lbridge_object* p_object, void* arg
 		if (received < 0)
 		{
 			int err = GET_LAST_SOCKET_ERROR();
-			err = err;
+			(void)err;
 			return false;
 		}
 		else if (received == 0)
@@ -420,13 +420,13 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 		return false;
 	}
 
-	p_client->connection.as_ptr = (void*)s;
+	p_client->connection.as_ptr = SOCKET_TO_PTR(s);
 	return true;
 }
 
 bool lbridge_unix_client_impl_disconnect(struct lbridge_client* p_client)
 {
-	socket_t s = (socket_t)(p_client->connection.as_ptr);
+	socket_t s = PTR_TO_SOCKET(p_client->connection.as_ptr);
 	if (IS_VALID_SOCKET(s))
 	{
 		CLOSE_SOCKET(s);
@@ -501,13 +501,13 @@ bool lbridge_unix_server_impl_open(struct lbridge_server* p_server, void* arg)
 		return false;
 	}
 
-	p_server->backend_data = (void*)s;
+	p_server->backend_data = SOCKET_TO_PTR(s);
 	return true;
 }
 
 bool lbridge_unix_server_impl_disconnect(struct lbridge_server* p_server)
 {
-	socket_t s = (socket_t)(p_server->backend_data);
+	socket_t s = PTR_TO_SOCKET(p_server->backend_data);
 	if (IS_VALID_SOCKET(s))
 	{
 		CLOSE_SOCKET(s);
@@ -526,7 +526,7 @@ bool lbridge_unix_server_impl_accept(struct lbridge_server* p_server, void* arg)
 {
 	struct lbridge_server_accept_data* accept_data = (struct lbridge_server_accept_data*)arg;
 	accept_data->new_client_accepted = false;
-	socket_t server_socket = (socket_t)(p_server->backend_data);
+	socket_t server_socket = PTR_TO_SOCKET(p_server->backend_data);
 	if (!IS_VALID_SOCKET(server_socket))
 	{
 		p_server->base.last_error = LBRIDGE_ERROR_NOT_CONNECTED;
@@ -551,7 +551,7 @@ bool lbridge_unix_server_impl_accept(struct lbridge_server* p_server, void* arg)
 		return false;
 	}
 
-	accept_data->new_connection->as_ptr = (void*)client_socket;
+	accept_data->new_connection->as_ptr = SOCKET_TO_PTR(client_socket);
 	accept_data->new_client_accepted = true;
 	return true;
 }
