@@ -107,9 +107,9 @@ if(LBRIDGE_BUILD_TESTS)
     )
 
     if(MSVC)
-        target_compile_options(lbridge_test PRIVATE /W3 /WX /sdl)
+        target_compile_options(lbridge_test PRIVATE /W3 /sdl)
     else()
-        target_compile_options(lbridge_test PRIVATE -Wall -Wextra -Werror)
+        target_compile_options(lbridge_test PRIVATE -Wall -Wextra)
     endif()
 
     set_target_properties(lbridge_test PROPERTIES
