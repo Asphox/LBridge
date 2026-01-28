@@ -88,40 +88,6 @@ bool lbridge_tcp_client_impl_connect(struct lbridge_client* p_client, void* arg)
 		return false;
 	}
 
-	// On some Unix systems, select() may return writable and getsockopt(SO_ERROR)
-	// may return 0 momentarily even when connection failed (race condition with RST).
-	// Use recv(MSG_PEEK) to verify the connection: if it returns 0 (connection closed)
-	// or fails with ECONNREFUSED/ENOTCONN/ECONNRESET, the connection actually failed.
-	// If it returns -1 with EWOULDBLOCK/EAGAIN, the connection is established (no data yet).
-	char peek_buf;
-	int peek_result = recv(s, &peek_buf, 1, MSG_PEEK);
-	if (peek_result == 0)
-	{
-		// Connection closed (RST received)
-		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
-		CLOSE_SOCKET(s);
-		return false;
-	}
-	else if (peek_result < 0)
-	{
-		const int err = GET_LAST_SOCKET_ERROR();
-		if (err != LBRIDGE_EWOULDBLOCK && err != LBRIDGE_EAGAIN)
-		{
-			// Real error - connection failed
-			if (err == LBRIDGE_ECONNREFUSED || err == LBRIDGE_ENOTCONN || err == LBRIDGE_ECONNRESET)
-			{
-				p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
-			}
-			else
-			{
-				p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
-			}
-			CLOSE_SOCKET(s);
-			return false;
-		}
-		// EWOULDBLOCK/EAGAIN means socket is connected but no data yet - this is OK
-	}
-
 	p_client->connection.as_ptr = SOCKET_TO_PTR(s);
 	return true;
 }
@@ -488,40 +454,6 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 		}
 		CLOSE_SOCKET(s);
 		return false;
-	}
-
-	// On some Unix systems, select() may return writable and getsockopt(SO_ERROR)
-	// may return 0 momentarily even when connection failed (race condition with RST).
-	// Use recv(MSG_PEEK) to verify the connection: if it returns 0 (connection closed)
-	// or fails with ECONNREFUSED/ENOTCONN/ECONNRESET, the connection actually failed.
-	// If it returns -1 with EWOULDBLOCK/EAGAIN, the connection is established (no data yet).
-	char peek_buf;
-	int peek_result = recv(s, &peek_buf, 1, MSG_PEEK);
-	if (peek_result == 0)
-	{
-		// Connection closed (RST received)
-		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
-		CLOSE_SOCKET(s);
-		return false;
-	}
-	else if (peek_result < 0)
-	{
-		const int err = GET_LAST_SOCKET_ERROR();
-		if (err != LBRIDGE_EWOULDBLOCK && err != LBRIDGE_EAGAIN)
-		{
-			// Real error - connection failed
-			if (err == LBRIDGE_ECONNREFUSED || err == LBRIDGE_ENOTCONN || err == LBRIDGE_ECONNRESET)
-			{
-				p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
-			}
-			else
-			{
-				p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
-			}
-			CLOSE_SOCKET(s);
-			return false;
-		}
-		// EWOULDBLOCK/EAGAIN means socket is connected but no data yet - this is OK
 	}
 
 	p_client->connection.as_ptr = SOCKET_TO_PTR(s);
