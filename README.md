@@ -585,9 +585,12 @@ Client                                          Server
 | 10 | `LBRIDGE_ERROR_SEND_UNKNOWN` | Unknown send error |
 | 11 | `LBRIDGE_ERROR_RECEIVE_TIMEOUT` | Receive timed out |
 | 12 | `LBRIDGE_ERROR_SERVER_OPEN_FAILED` | Server bind failed |
-| 13 | `LBRIDGE_ERROR_HANDSHAKE_FAILED` | Handshake failed |
-| 14 | `LBRIDGE_ERROR_TOO_MUCH_DATA` | Payload too large |
-| 15 | `LBRIDGE_ERROR_AUTHENTICATION_FAILED` | Decryption auth failed |
+| 13 | `LBRIDGE_ERROR_RESSOURCE_UNAVAILABLE` | Resource unavailable (e.g., port already in use) |
+| 14 | `LBRIDGE_ERROR_HANDSHAKE_FAILED` | Handshake failed |
+| 15 | `LBRIDGE_ERROR_TOO_MUCH_DATA` | Payload too large |
+| 16 | `LBRIDGE_ERROR_AUTHENTICATION_FAILED` | Decryption auth failed |
+| 17 | `LRBDIGE_ERROR_PROTOCOL_VIOLATION` | Protocol violation detected |
+| 18 | `LBRIDGE_ERROR_INVALID_RPC_ID` | Invalid RPC ID specified |
 | 255 | `LBRIDGE_ERROR_UNKNOWN` | Unknown error |
 
 ### Protocol Error Codes (`lbridge_protocol_error`)

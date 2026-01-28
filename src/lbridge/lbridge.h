@@ -88,6 +88,7 @@ enum lbridge_error_code
 	LBRIDGE_ERROR_SEND_UNKNOWN,          /**< Unknown error during send operation. */
 	LBRIDGE_ERROR_RECEIVE_TIMEOUT,       /**< Receive operation timed out. */
 	LBRIDGE_ERROR_SERVER_OPEN_FAILED,    /**< Server failed to bind or listen on the specified address/port. */
+	LBRIDGE_ERROR_RESSOURCE_UNAVAILABLE,  /**< Required resource is unavailable. */
 	LBRIDGE_ERROR_HANDSHAKE_FAILED,      /**< Protocol handshake with remote peer failed. */
 	LBRIDGE_ERROR_TOO_MUCH_DATA,         /**< Payload size exceeds the maximum allowed size. */
 	LBRIDGE_ERROR_AUTHENTICATION_FAILED, /**< Encryption authentication tag verification failed. */

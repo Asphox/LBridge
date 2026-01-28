@@ -86,7 +86,11 @@ static bool server_listen_tcp_with_retry(lbridge_server_t server, const char* ho
     {
         if (lbridge_server_listen_tcp(server, host, port, max_clients))
             return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		const enum lbridge_error_code err = lbridge_get_last_error(server);
+		if (err != LBRIDGE_ERROR_RESSOURCE_UNAVAILABLE)
+			return false;
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
     return false;
 }

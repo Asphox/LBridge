@@ -38,6 +38,7 @@ extern _Bool lbridge_win_wsa_init();
 #define LBRIDGE_ECONNABORTED WSAECONNABORTED
 #define LBRIDGE_ENOTCONN WSAENOTCONN
 #define LBRIDGE_ECONNRESET WSAECONNRESET
+#define LBRIDGE_EADDRINUSE WSAEADDRINUSE
 
 static inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking)
 {
@@ -78,6 +79,7 @@ typedef int socket_t;
 #define LBRIDGE_ECONNABORTED ECONNABORTED
 #define LBRIDGE_ENOTCONN ENOTCONN
 #define LBRIDGE_ECONNRESET ECONNRESET
+#define LBRIDGE_EADDRINUSE EADDRINUSE
 
 static inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking)
 {

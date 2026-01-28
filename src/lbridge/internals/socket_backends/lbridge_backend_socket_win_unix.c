@@ -143,7 +143,16 @@ bool lbridge_tcp_server_impl_open(struct lbridge_server* p_server, void* arg)
 
 	if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) != 0)
 	{
-		p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
+		const int socket_error = GET_LAST_SOCKET_ERROR();
+		switch (socket_error)
+		{
+		case LBRIDGE_EADDRINUSE:
+			p_server->base.last_error = LBRIDGE_ERROR_RESSOURCE_UNAVAILABLE;
+			break;
+		default:
+			p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
+			break;
+		}
 		CLOSE_SOCKET(s);
 		return false;
 	}
