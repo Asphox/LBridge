@@ -11,34 +11,60 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [64, 32]
         include:
-          - arch: 64
-            name: x86_64
+          - arch: x86_64
+            runner: ubuntu-latest
             flags: -m64
-          - arch: 32
-            name: x86
+            cross: false
+          - arch: x86
+            runner: ubuntu-latest
             flags: -m32
+            cross: false
+          - arch: ARM64
+            runner: ubuntu-24.04-arm
+            flags: ""
+            cross: false
+          - arch: ARM32
+            runner: ubuntu-latest
+            flags: ""
+            cross: true
 
-    runs-on: ubuntu-latest
-    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    name: ${{ matrix.arch }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install 32-bit libraries
-        if: matrix.arch == 32
+      - name: Install 32-bit libraries (x86)
+        if: matrix.arch == 'x86'
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-multilib g++-multilib
 
-      - name: Configure CMake
+      - name: Install ARM32 cross-compiler and QEMU
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user
+
+      - name: Configure CMake (native)
+        if: ${{ !matrix.cross }}
         run: cmake -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_FLAGS="${{ matrix.flags }}" -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+
+      - name: Configure CMake (ARM32 cross-compile)
+        if: matrix.cross
+        run: cmake -B build -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
 
       - name: Build
         run: cmake --build build
 
-      - name: Run tests
+      - name: Run tests (native)
+        if: ${{ !matrix.cross }}
         run: ./build/bin/lbridge_test
         timeout-minutes: 2
+
+      - name: Run tests (QEMU ARM32)
+        if: matrix.cross
+        run: qemu-arm -L /usr/arm-linux-gnueabihf ./build/bin/lbridge_test
+        timeout-minutes: 5
