@@ -79,6 +79,18 @@ static constexpr const char* TEST_HOST = "127.0.0.1";
 static constexpr uint16_t MAX_FRAME_PAYLOAD = 1024;
 static constexpr uint32_t MAX_PAYLOAD = 65536;
 
+// Helper to retry server listen with delay (for TIME_WAIT on Linux/macOS)
+static bool server_listen_tcp_with_retry(lbridge_server_t server, const char* host, uint16_t port, uint32_t max_clients, int max_attempts = 10)
+{
+    for (int i = 0; i < max_attempts; i++)
+    {
+        if (lbridge_server_listen_tcp(server, host, port, max_clients))
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
+
 #if defined(LBRIDGE_ENABLE_SECURE)
 static bool test_generate_nonce(lbridge_context_t ctx, uint8_t out_nonce[12])
 {
@@ -282,7 +294,7 @@ public:
             return false;
         }
 
-        if (!lbridge_server_listen_tcp(m_server, TEST_HOST, port, m_max_clients))
+        if (!server_listen_tcp_with_retry(m_server, TEST_HOST, port, m_max_clients))
         {
             lbridge_server_destroy(m_server);
             lbridge_context_destroy(m_ctx);
@@ -890,7 +902,7 @@ TEST_CASE("RPC call - with encryption")
     REQUIRE(server != nullptr);
 
     lbridge_activate_encryption(server, test_key);
-    REQUIRE(lbridge_server_listen_tcp(server, TEST_HOST, TEST_PORT, 10));
+    REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
     std::atomic<bool> running{ true };
     std::thread server_thread([&]() {
@@ -958,7 +970,7 @@ TEST_CASE("RPC call - encryption key mismatch")
     REQUIRE(server != nullptr);
 
     lbridge_activate_encryption(server, server_key);
-    REQUIRE(lbridge_server_listen_tcp(server, TEST_HOST, TEST_PORT, 10));
+    REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
     std::atomic<bool> running{ true };
     std::thread server_thread([&]() {
@@ -1017,7 +1029,7 @@ TEST_CASE("Server - client timeout disconnects inactive client")
     // Set a short client timeout (200ms)
     lbridge_server_set_client_timeout(server, 200);
 
-    REQUIRE(lbridge_server_listen_tcp(server, TEST_HOST, TEST_PORT, 10));
+    REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
     std::atomic<bool> running{ true };
     std::thread server_thread([&]() {
@@ -1105,7 +1117,7 @@ TEST_CASE("Client - ping refreshes timeout")
     // Set client timeout of 200ms
     lbridge_server_set_client_timeout(server, 200);
 
-    REQUIRE(lbridge_server_listen_tcp(server, TEST_HOST, TEST_PORT, 10));
+    REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
     std::atomic<bool> running{ true };
     std::thread server_thread([&]() {
@@ -1164,7 +1176,7 @@ TEST_CASE("Server - active client is not disconnected")
     // Set client timeout of 200ms
     lbridge_server_set_client_timeout(server, 200);
 
-    REQUIRE(lbridge_server_listen_tcp(server, TEST_HOST, TEST_PORT, 10));
+    REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
     std::atomic<bool> running{ true };
     std::thread server_thread([&]() {
