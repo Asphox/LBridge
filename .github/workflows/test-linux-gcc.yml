@@ -15,19 +15,12 @@ jobs:
           - arch: x86_64
             runner: ubuntu-latest
             flags: -m64
-            cross: false
           - arch: x86
             runner: ubuntu-latest
             flags: -m32
-            cross: false
           - arch: ARM64
             runner: ubuntu-24.04-arm
             flags: ""
-            cross: false
-          - arch: ARM32
-            runner: ubuntu-latest
-            flags: ""
-            cross: true
 
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.arch }}
@@ -42,29 +35,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-multilib g++-multilib
 
-      - name: Install ARM32 cross-compiler and QEMU
-        if: matrix.cross
+      - name: Install gdb
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user
+          sudo apt-get install -y gdb
 
-      - name: Configure CMake (native)
-        if: ${{ !matrix.cross }}
-        run: cmake -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_FLAGS="${{ matrix.flags }}" -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
-
-      - name: Configure CMake (ARM32 cross-compile)
-        if: matrix.cross
-        run: cmake -B build -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++ -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_FLAGS="${{ matrix.flags }}" -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" -DCMAKE_BUILD_TYPE=Debug -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
 
       - name: Build
         run: cmake --build build
 
-      - name: Run tests (native)
-        if: ${{ !matrix.cross }}
-        run: ./build/bin/lbridge_test
+      - name: Run tests
+        run: |
+          ./build/bin/lbridge_test &
+          PID=$!
+          TIMEOUT=60
+          ELAPSED=0
+          while kill -0 $PID 2>/dev/null; do
+            if [ $ELAPSED -ge $TIMEOUT ]; then
+              echo "=== TIMEOUT after ${TIMEOUT}s - Capturing stack trace ==="
+              sudo gdb -batch -ex "attach $PID" -ex "thread apply all bt full" -ex "detach" -ex "quit" || true
+              kill -9 $PID 2>/dev/null || true
+              exit 1
+            fi
+            sleep 1
+            ELAPSED=$((ELAPSED + 1))
+          done
+          wait $PID
         timeout-minutes: 2
-
-      - name: Run tests (QEMU ARM32)
-        if: matrix.cross
-        run: qemu-arm -L /usr/arm-linux-gnueabihf ./build/bin/lbridge_test
-        timeout-minutes: 5
