@@ -55,7 +55,7 @@ jobs:
           while kill -0 $PID 2>/dev/null; do
             if [ $ELAPSED -ge $TIMEOUT ]; then
               echo "=== TIMEOUT after ${TIMEOUT}s - Capturing stack trace ==="
-              sudo gdb -batch -ex "attach $PID" -ex "thread apply all bt full" -ex "detach" -ex "quit" || true
+              sudo gdb -batch -ex "attach $PID" -ex "thread apply all bt" -ex "detach" -ex "quit" || true
               kill -9 $PID 2>/dev/null || true
               exit 1
             fi
