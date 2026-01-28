@@ -40,16 +40,24 @@ bool lbridge_tcp_client_impl_connect(struct lbridge_client* p_client, void* arg)
 		}
 	}
 	// connect with timeout
-	fd_set wfds;
+	fd_set wfds, efds;
 	FD_ZERO(&wfds);
+	FD_ZERO(&efds);
 	FD_SET(s, &wfds);
+	FD_SET(s, &efds);
 	struct timeval tv;
 	tv.tv_sec = p_client->base.timeout_ms / 1000;
 	tv.tv_usec = (p_client->base.timeout_ms % 1000) * 1000;
-	const int rc = select((int)(s + 1), NULL, &wfds, NULL, (p_client->base.timeout_ms >= 0 ? &tv : NULL));
+	const int rc = select((int)(s + 1), NULL, &wfds, &efds, (p_client->base.timeout_ms >= 0 ? &tv : NULL));
 	if (rc == 0)
 	{
 		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
+		CLOSE_SOCKET(s);
+		return false;
+	}
+	if (rc < 0 || FD_ISSET(s, &efds))
+	{
+		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
 		CLOSE_SOCKET(s);
 		return false;
 	}
@@ -385,16 +393,24 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 	}
 
 	// connect with timeout
-	fd_set wfds;
+	fd_set wfds, efds;
 	FD_ZERO(&wfds);
+	FD_ZERO(&efds);
 	FD_SET(s, &wfds);
+	FD_SET(s, &efds);
 	struct timeval tv;
 	tv.tv_sec = p_client->base.timeout_ms / 1000;
 	tv.tv_usec = (p_client->base.timeout_ms % 1000) * 1000;
-	const int rc = select((int)(s + 1), NULL, &wfds, NULL, (p_client->base.timeout_ms >= 0 ? &tv : NULL));
+	const int rc = select((int)(s + 1), NULL, &wfds, &efds, (p_client->base.timeout_ms >= 0 ? &tv : NULL));
 	if (rc == 0)
 	{
 		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_TIMEOUT;
+		CLOSE_SOCKET(s);
+		return false;
+	}
+	if (rc < 0 || FD_ISSET(s, &efds))
+	{
+		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
 		CLOSE_SOCKET(s);
 		return false;
 	}
