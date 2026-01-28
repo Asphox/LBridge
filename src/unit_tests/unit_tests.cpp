@@ -889,9 +889,9 @@ TEST_CASE("Server - max clients limit")
 
 TEST_CASE("RPC call - timeout")
 {
-    // Server that never responds
+    // Server that responds slowly (longer than client timeout)
     auto slow_callback = [](const lbridge_rpc_context_t, const uint8_t*, uint32_t) -> bool {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
         return true;
     };
 
@@ -903,7 +903,7 @@ TEST_CASE("RPC call - timeout")
     REQUIRE(client != nullptr);
     REQUIRE(lbridge_client_connect_tcp(client, TEST_HOST, TEST_PORT));
 
-    lbridge_set_timeout(client, 200);  // 200ms timeout
+    lbridge_set_timeout(client, 100);  // 100ms timeout (less than callback's 500ms)
 
     uint8_t buffer[256] = { 1, 2, 3, 4 };
     uint32_t size = 4;
@@ -922,6 +922,8 @@ TEST_CASE("RPC call - timeout")
 #if defined(LBRIDGE_ENABLE_SECURE)
 TEST_CASE("RPC call - with encryption")
 {
+    // Small delay to ensure previous test's sockets are fully closed (especially after RPC timeout test)
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     static const uint8_t test_key[32] = {
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
         0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
