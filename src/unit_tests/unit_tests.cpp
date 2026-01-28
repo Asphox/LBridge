@@ -95,6 +95,41 @@ static bool server_listen_tcp_with_retry(lbridge_server_t server, const char* ho
     return false;
 }
 
+// RAII helper to ensure server thread is always stopped, even if test fails
+class ScopedServerThread
+{
+public:
+    ScopedServerThread(lbridge_server_t server, int update_interval_ms = 1)
+        : m_server(server), m_running(true)
+    {
+        m_thread = std::thread([this, update_interval_ms]() {
+            while (m_running)
+            {
+                lbridge_server_update(m_server);
+                std::this_thread::sleep_for(std::chrono::milliseconds(update_interval_ms));
+            }
+        });
+        std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Wait for server to be ready
+    }
+
+    ~ScopedServerThread()
+    {
+        stop();
+    }
+
+    void stop()
+    {
+        m_running = false;
+        if (m_thread.joinable())
+            m_thread.join();
+    }
+
+private:
+    lbridge_server_t m_server;
+    std::atomic<bool> m_running;
+    std::thread m_thread;
+};
+
 #if defined(LBRIDGE_ENABLE_SECURE)
 static bool test_generate_nonce(lbridge_context_t ctx, uint8_t out_nonce[12])
 {
@@ -908,16 +943,7 @@ TEST_CASE("RPC call - with encryption")
     lbridge_activate_encryption(server, test_key);
     REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
-    std::atomic<bool> running{ true };
-    std::thread server_thread([&]() {
-        while (running)
-        {
-            lbridge_server_update(server);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ScopedServerThread server_thread(server);
 
     // Client with encryption
     TestContext ctx;
@@ -941,8 +967,7 @@ TEST_CASE("RPC call - with encryption")
 
     lbridge_client_destroy(client);
 
-    running = false;
-    server_thread.join();
+    server_thread.stop();
     lbridge_server_destroy(server);
     lbridge_context_destroy(server_ctx);
 }
@@ -976,16 +1001,7 @@ TEST_CASE("RPC call - encryption key mismatch")
     lbridge_activate_encryption(server, server_key);
     REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
-    std::atomic<bool> running{ true };
-    std::thread server_thread([&]() {
-        while (running)
-        {
-            lbridge_server_update(server);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ScopedServerThread server_thread(server);
 
     TestContext ctx;
     lbridge_client_t client = lbridge_client_create(ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
@@ -1005,8 +1021,7 @@ TEST_CASE("RPC call - encryption key mismatch")
 
     lbridge_client_destroy(client);
 
-    running = false;
-    server_thread.join();
+    server_thread.stop();
     lbridge_server_destroy(server);
     lbridge_context_destroy(server_ctx);
 }
@@ -1035,16 +1050,7 @@ TEST_CASE("Server - client timeout disconnects inactive client")
 
     REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
-    std::atomic<bool> running{ true };
-    std::thread server_thread([&]() {
-        while (running)
-        {
-            lbridge_server_update(server);
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ScopedServerThread server_thread(server, 10);
 
     // Connect a client
     TestContext ctx;
@@ -1070,8 +1076,7 @@ TEST_CASE("Server - client timeout disconnects inactive client")
 
     lbridge_client_destroy(client);
 
-    running = false;
-    server_thread.join();
+    server_thread.stop();
     lbridge_server_destroy(server);
     lbridge_context_destroy(server_ctx);
 }
@@ -1123,16 +1128,7 @@ TEST_CASE("Client - ping refreshes timeout")
 
     REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
-    std::atomic<bool> running{ true };
-    std::thread server_thread([&]() {
-        while (running)
-        {
-            lbridge_server_update(server);
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ScopedServerThread server_thread(server, 10);
 
     // Connect a client
     TestContext ctx;
@@ -1157,8 +1153,7 @@ TEST_CASE("Client - ping refreshes timeout")
 
     lbridge_client_destroy(client);
 
-    running = false;
-    server_thread.join();
+    server_thread.stop();
     lbridge_server_destroy(server);
     lbridge_context_destroy(server_ctx);
 }
@@ -1182,16 +1177,7 @@ TEST_CASE("Server - active client is not disconnected")
 
     REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
-    std::atomic<bool> running{ true };
-    std::thread server_thread([&]() {
-        while (running)
-        {
-            lbridge_server_update(server);
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ScopedServerThread server_thread(server, 10);
 
     // Connect a client
     TestContext ctx;
@@ -1231,8 +1217,7 @@ TEST_CASE("Server - active client is not disconnected")
 
     lbridge_client_destroy(client);
 
-    running = false;
-    server_thread.join();
+    server_thread.stop();
     lbridge_server_destroy(server);
     lbridge_context_destroy(server_ctx);
 }
@@ -1669,16 +1654,7 @@ TEST_CASE("Unix socket RPC call - with encryption")
     lbridge_activate_encryption(server, test_key);
     REQUIRE(lbridge_server_listen_unix(server, TEST_UNIX_SOCKET_PATH, 10));
 
-    std::atomic<bool> running{ true };
-    std::thread server_thread([&]() {
-        while (running)
-        {
-            lbridge_server_update(server);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ScopedServerThread server_thread(server);
 
     // Client with encryption
     TestContext ctx;
@@ -1702,8 +1678,7 @@ TEST_CASE("Unix socket RPC call - with encryption")
 
     lbridge_client_destroy(client);
 
-    running = false;
-    server_thread.join();
+    server_thread.stop();
     lbridge_server_destroy(server);
     lbridge_context_destroy(server_ctx);
 }
