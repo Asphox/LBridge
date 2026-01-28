@@ -83,6 +83,26 @@ bool lbridge_tcp_client_impl_connect(struct lbridge_client* p_client, void* arg)
 		return false;
 	}
 
+	// On some Unix systems, select() may return writable and getsockopt(SO_ERROR)
+	// may return 0 momentarily even when connection failed. Use getpeername() to
+	// verify the connection is actually established.
+	struct sockaddr_in peer_addr;
+	socklen_t peer_len = sizeof(peer_addr);
+	if (getpeername(s, (struct sockaddr*)&peer_addr, &peer_len) != 0)
+	{
+		const int err = GET_LAST_SOCKET_ERROR();
+		if (err == LBRIDGE_ENOTCONN || err == LBRIDGE_ECONNREFUSED)
+		{
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
+		}
+		else
+		{
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
+		}
+		CLOSE_SOCKET(s);
+		return false;
+	}
+
 	p_client->connection.as_ptr = SOCKET_TO_PTR(s);
 	return true;
 }
@@ -431,6 +451,26 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 		default:
 			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
 			break;
+		}
+		CLOSE_SOCKET(s);
+		return false;
+	}
+
+	// On some Unix systems, select() may return writable and getsockopt(SO_ERROR)
+	// may return 0 momentarily even when connection failed. Use getpeername() to
+	// verify the connection is actually established.
+	struct sockaddr_un peer_addr;
+	socklen_t peer_len = sizeof(peer_addr);
+	if (getpeername(s, (struct sockaddr*)&peer_addr, &peer_len) != 0)
+	{
+		const int err = GET_LAST_SOCKET_ERROR();
+		if (err == LBRIDGE_ENOTCONN || err == LBRIDGE_ECONNREFUSED)
+		{
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
+		}
+		else
+		{
+			p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_UNKNOWN;
 		}
 		CLOSE_SOCKET(s);
 		return false;

@@ -31,10 +31,11 @@ typedef SOCKET socket_t;
 #define IOCTL(s, cmd, arg) ioctlsocket((s), (cmd), (arg))
 extern _Bool lbridge_win_wsa_init();
 #define LBRIDGE_EINPROGRESS WSAEINPROGRESS
-#define LBRIDGE_EWOULDBLOCK WSAEWOULDBLOCK 
+#define LBRIDGE_EWOULDBLOCK WSAEWOULDBLOCK
 #define LBRIDGE_ECONNREFUSED WSAECONNREFUSED
 #define LBRIDGE_ETIMEDOUT WSAETIMEDOUT
 #define LBRIDGE_ECONNABORTED WSAECONNABORTED
+#define LBRIDGE_ENOTCONN WSAENOTCONN
 
 inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking)
 {
@@ -68,10 +69,11 @@ typedef int socket_t;
 #define IOCTL(s, cmd, arg) ioctl((s), (cmd), (arg))
 
 #define LBRIDGE_EINPROGRESS EINPROGRESS
-#define LBRIDGE_EWOULDBLOCK EWOULDBLOCK 
+#define LBRIDGE_EWOULDBLOCK EWOULDBLOCK
 #define LBRIDGE_ECONNREFUSED ECONNREFUSED
 #define LBRIDGE_ETIMEDOUT ETIMEDOUT
 #define LBRIDGE_ECONNABORTED ECONNABORTED
+#define LBRIDGE_ENOTCONN ENOTCONN
 
 inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking)
 {
