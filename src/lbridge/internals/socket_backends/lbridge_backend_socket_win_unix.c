@@ -327,8 +327,9 @@ bool lbridge_socket_impl_receive_data(struct lbridge_object* p_object, void* arg
 	return true;
 }
 
-bool lbridge_socket_impl_connection_close(struct lbridge_object* _, void* arg)
+bool lbridge_socket_impl_connection_close(struct lbridge_object* p_object, void* arg)
 {
+	LBRIDGE_UNUSED(p_object);
 	const struct lbridge_connection* connection = (const struct lbridge_connection*)arg;
 	socket_t s = PTR_TO_SOCKET(connection->as_ptr);
 	if (IS_VALID_SOCKET(s))

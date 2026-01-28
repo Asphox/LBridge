@@ -22,6 +22,8 @@ extern "C" {
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 #endif
 
+#define LBRIDGE_UNUSED(x) (void)(x)
+
 enum lbridge_backend_operation
 {
 	LBRIDGE_OP_NONE = 0,
