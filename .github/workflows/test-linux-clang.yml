@@ -8,15 +8,33 @@ on:
 
 jobs:
   test:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [64, 32]
+        include:
+          - arch: 64
+            name: x86_64
+            flags: -m64
+          - arch: 32
+            name: x86
+            flags: -m32
+
     runs-on: ubuntu-latest
-    name: Build & Test
+    name: ${{ matrix.name }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install 32-bit libraries
+        if: matrix.arch == 32
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib
+
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+        run: cmake -B build -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS="${{ matrix.flags }}" -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
 
       - name: Build
         run: cmake --build build

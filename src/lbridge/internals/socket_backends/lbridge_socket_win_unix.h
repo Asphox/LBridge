@@ -64,7 +64,7 @@ typedef int socket_t;
 #define INVALID_SOCK -1
 #define IS_VALID_SOCKET(s) ((s) >= 0)
 #define GET_LAST_SOCKET_ERROR() errno
-#define INIT_SOCKET_IF_NEEDED() (true)
+#define INIT_SOCKET_IF_NEEDED() ((void)0)
 #define IOCTL(s, cmd, arg) ioctl((s), (cmd), (arg))
 
 #define LBRIDGE_EINPROGRESS EINPROGRESS
