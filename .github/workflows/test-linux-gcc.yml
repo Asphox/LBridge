@@ -41,7 +41,7 @@ jobs:
           sudo apt-get install -y gdb
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_FLAGS="${{ matrix.flags }}" -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" -DCMAKE_BUILD_TYPE=Debug -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+        run: cmake -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_FLAGS="${{ matrix.flags }}" -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
 
       - name: Build
         run: cmake --build build

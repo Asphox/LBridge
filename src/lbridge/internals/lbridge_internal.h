@@ -224,119 +224,119 @@ struct lbridge_frame
 // no payload, no response
 #define LBRIDGE_FRAME_HEADER_CMD_PING_OPCODE 0x2
 
-inline void __lbridge_frame_set_start(struct lbridge_frame* frame, bool v)
+static inline void __lbridge_frame_set_start(struct lbridge_frame* frame, bool v)
 {
 	LBRIDGE_WRITE_BIT_U32(frame->header, LBRIDGE_FRAME_HEADER_START_OFFSET, v);
 }
 
-inline bool __lbridge_frame_is_start(const struct lbridge_frame* frame)
+static inline bool __lbridge_frame_is_start(const struct lbridge_frame* frame)
 {
 	return (frame->header & LBRIDGE_FRAME_HEADER_START_MASK) != 0;
 }
 
-inline void __lbridge_frame_set_end(struct lbridge_frame* frame, bool v)
+static inline void __lbridge_frame_set_end(struct lbridge_frame* frame, bool v)
 {
 	LBRIDGE_WRITE_BIT_U32(frame->header, LBRIDGE_FRAME_HEADER_END_OFFSET, v);
 }
 
-inline bool __lbridge_frame_is_end(const struct lbridge_frame* frame)
+static inline bool __lbridge_frame_is_end(const struct lbridge_frame* frame)
 {
 	return (frame->header & LBRIDGE_FRAME_HEADER_END_MASK) != 0;
 }
 
-inline void __lbridge_frame_set_cmd(struct lbridge_frame* frame, bool v)
+static inline void __lbridge_frame_set_cmd(struct lbridge_frame* frame, bool v)
 {
 	LBRIDGE_WRITE_BIT_U32(frame->header, LBRIDGE_FRAME_HEADER_CMD_OFFSET, v);
 }
 
-inline bool __lbridge_frame_is_cmd(const struct lbridge_frame* frame)
+static inline bool __lbridge_frame_is_cmd(const struct lbridge_frame* frame)
 {
 	return (frame->header & LBRIDGE_FRAME_HEADER_CMD_MASK) != 0;
 }
 
-inline bool __lbridge_frame_is_rpc_no_response(const struct lbridge_frame* frame)
+static inline bool __lbridge_frame_is_rpc_no_response(const struct lbridge_frame* frame)
 {
 	return (frame->header & LBRIDGE_FRAME_HEADER_RPC_NO_RESPONSE_MASK) != 0 && !__lbridge_frame_is_cmd(frame);
 }
 
-inline void __lbridge_frame_set_rpc_no_response(struct lbridge_frame* frame, bool v)
+static inline void __lbridge_frame_set_rpc_no_response(struct lbridge_frame* frame, bool v)
 {
 	LBRIDGE_WRITE_BIT_U32(frame->header, LBRIDGE_FRAME_HEADER_RPC_NO_RESPONSE_OFFSET, v);
 }
 
-inline uint16_t __lbridge_frame_get_rpc_id(const struct lbridge_frame* frame)
+static inline uint16_t __lbridge_frame_get_rpc_id(const struct lbridge_frame* frame)
 {
 	return (uint16_t)((frame->header & LBRIDGE_FRAME_HEADER_RPC_ID_MASK) >> LBRIDGE_FRAME_HEADER_RPC_ID_OFFSET);
 }
 
-inline void __lbridge_frame_set_rpc_id(struct lbridge_frame* frame, uint16_t rpc_id)
+static inline void __lbridge_frame_set_rpc_id(struct lbridge_frame* frame, uint16_t rpc_id)
 {
 	frame->header = (frame->header & ~LBRIDGE_FRAME_HEADER_RPC_ID_MASK) | ((uint32_t)(rpc_id) << LBRIDGE_FRAME_HEADER_RPC_ID_OFFSET);
 }
 
-inline uint16_t __lbridge_frame_get_cmd_data(const struct lbridge_frame* frame)
+static inline uint16_t __lbridge_frame_get_cmd_data(const struct lbridge_frame* frame)
 {
 	return __lbridge_frame_get_rpc_id(frame);
 }
 
-inline void __lbridge_frame_set_cmd_data(struct lbridge_frame* frame, uint16_t cmd_data)
+static inline void __lbridge_frame_set_cmd_data(struct lbridge_frame* frame, uint16_t cmd_data)
 {
 	__lbridge_frame_set_rpc_id(frame, cmd_data);
 }
 
-inline void __lbridge_frame_set_cmd_opcode(struct lbridge_frame* frame, uint8_t opcode)
+static inline void __lbridge_frame_set_cmd_opcode(struct lbridge_frame* frame, uint8_t opcode)
 {
 	frame->header = (frame->header & ~LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_MASK) | ((uint32_t)(opcode) << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_OFFSET);
 }
 
-inline uint16_t __lbridge_frame_get_payload_length(const struct lbridge_frame* frame)
+static inline uint16_t __lbridge_frame_get_payload_length(const struct lbridge_frame* frame)
 {
 	return (uint16_t)((frame->header & LBRIDGE_FRAME_HEADER_PLEN_MASK) >> LBRIDGE_FRAME_HEADER_PLEN_OFFSET);
 }
 
-inline void __lbridge_frame_set_payload_length(struct lbridge_frame* frame, uint16_t payload_length)
+static inline void __lbridge_frame_set_payload_length(struct lbridge_frame* frame, uint16_t payload_length)
 {
 	frame->header = (frame->header & ~LBRIDGE_FRAME_HEADER_PLEN_MASK) | ((uint32_t)(payload_length) << LBRIDGE_FRAME_HEADER_PLEN_OFFSET);
 }
 
-inline void __lbridge_object_set_error(lbridge_object_t obj, enum lbridge_error_code error_code)
+static inline void __lbridge_object_set_error(lbridge_object_t obj, enum lbridge_error_code error_code)
 {
 	((struct lbridge_object*)obj)->last_error = error_code;
 }
 
-inline enum lbridge_error_code __lbridge_object_get_error(const lbridge_object_t obj)
+static inline enum lbridge_error_code __lbridge_object_get_error(const lbridge_object_t obj)
 {
 	return ((struct lbridge_object*)obj)->last_error;
 }
 
-inline enum lbridge_type __lbridge_object_get_type(const lbridge_object_t obj)
+static inline enum lbridge_type __lbridge_object_get_type(const lbridge_object_t obj)
 {
 	return ((struct lbridge_object*)obj)->type;
 }
 
-inline uint16_t __lbridge_object_get_max_frame_payload_size(const lbridge_object_t obj)
+static inline uint16_t __lbridge_object_get_max_frame_payload_size(const lbridge_object_t obj)
 {
 	return ((struct lbridge_object*)obj)->max_frame_payload_size;
 }
 
-inline uint32_t __lbridge_object_get_max_payload_size(const lbridge_object_t obj)
+static inline uint32_t __lbridge_object_get_max_payload_size(const lbridge_object_t obj)
 {
 	return ((struct lbridge_object*)obj)->max_payload_size;
 }
 
 #if defined(LBRIDGE_ENABLE_SECURE)
-inline bool __lbridge_connection_need_encryption(const struct lbridge_connection* connection)
+static inline bool __lbridge_connection_need_encryption(const struct lbridge_connection* connection)
 {
 	// if we have a nonce, we have encryption
 	return (connection->counters.receive.value != 0 || connection->counters.send.value != 0 || connection->counters.receive.reserved_lsb_bytes != 0 || connection->counters.send.reserved_lsb_bytes != 0);
 }
-inline uint8_t* __lbridge_get_encryption_key(const lbridge_object_t obj)
+static inline uint8_t* __lbridge_get_encryption_key(const lbridge_object_t obj)
 {
 	return (uint8_t*)((struct lbridge_object*)obj)->encryption_key_256bits;
 }
 #endif // LBRIDGE_ENABLE_SECURE
 
-inline struct lbridge_context*  __lbridge_object_get_context(const lbridge_object_t obj)
+static inline struct lbridge_context*  __lbridge_object_get_context(const lbridge_object_t obj)
 {
 	return ((struct lbridge_object*)obj)->context;
 }

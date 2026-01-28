@@ -39,7 +39,7 @@ extern _Bool lbridge_win_wsa_init();
 #define LBRIDGE_ENOTCONN WSAENOTCONN
 #define LBRIDGE_ECONNRESET WSAECONNRESET
 
-inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking)
+static inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking)
 {
 	u_long mode = nonblocking ? 1 : 0;
 	int result = ioctlsocket(s, FIONBIO, &mode);
@@ -79,7 +79,7 @@ typedef int socket_t;
 #define LBRIDGE_ENOTCONN ENOTCONN
 #define LBRIDGE_ECONNRESET ECONNRESET
 
-inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking)
+static inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking)
 {
     int flags = fcntl(s, F_GETFL, 0);
     if (flags < 0)
