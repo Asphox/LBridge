@@ -1266,7 +1266,6 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 					const uint16_t payload_length = __lbridge_frame_get_payload_length((const struct lbridge_frame*)&connection->current_frame_header);
 					const uint16_t rpc_id = __lbridge_frame_get_rpc_id((const struct lbridge_frame*)&connection->current_frame_header);
 					const bool is_end_frame = __lbridge_frame_is_end((const struct lbridge_frame*)&connection->current_frame_header);
-					connection->current_frame_header = 0;
 					uint32_t received_size = 0;
 					// receive payload
 					if (!__lbridge_receive_data(p_server, connection->receive_buffer + connection->receive_buffer_used_size, payload_length, &received_size, (struct lbridge_connection*)connection, 0))
@@ -1279,6 +1278,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 						// no more data pending for this client, we can check the next one
 						break;
 					}
+					connection->current_frame_header = 0; // reset for next frame
 					connection->receive_buffer_used_size += received_size;
 					// a full message has been received, we can process it
 					if (is_end_frame)
