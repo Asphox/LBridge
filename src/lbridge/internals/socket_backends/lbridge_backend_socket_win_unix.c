@@ -276,10 +276,11 @@ bool lbridge_socket_impl_receive_data(struct lbridge_object* p_object, void* arg
 	// if non-blocking and no data available, return immediately
 	if(!(receive_data->flags & LBRIDGE_RECEIVE_BLOCKING))
 	{
-		unsigned long bytes_available = 0;
-		int result = IOCTL(s, FIONREAD, &bytes_available);
-		if (result != 0 || bytes_available < receive_data->requested_size)
+		char peek_byte;
+		int peek_result = recv(s, &peek_byte, 1, MSG_PEEK);
+		if (peek_result <= 0)
 		{
+			// No data available (EWOULDBLOCK/EAGAIN) or connection closed
 			receive_data->received_size = 0;
 			return true;
 		}
