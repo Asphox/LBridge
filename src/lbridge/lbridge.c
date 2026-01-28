@@ -1183,7 +1183,6 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 		}
 		else if(connection->base.connected)
 		{
-			uint8_t* data_received = NULL;
 			while (connection->base.connected)
 			{
 				// check if there is data to process
@@ -1265,7 +1264,6 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 				{
 					// there is data to process
 					const uint16_t payload_length = __lbridge_frame_get_payload_length((const struct lbridge_frame*)&connection->current_frame_header);
-					const uint32_t total_frame_size = sizeof(struct lbridge_frame) + payload_length;
 					const uint16_t rpc_id = __lbridge_frame_get_rpc_id((const struct lbridge_frame*)&connection->current_frame_header);
 					const bool is_end_frame = __lbridge_frame_is_end((const struct lbridge_frame*)&connection->current_frame_header);
 					connection->current_frame_header = 0;

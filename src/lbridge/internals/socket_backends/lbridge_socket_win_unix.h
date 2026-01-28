@@ -11,7 +11,9 @@ extern "C" {
 #include <afunix.h>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#if defined(_MSC_VER)
 #pragma comment(lib, "ws2_32.lib")
+#endif
 
 typedef SOCKET socket_t;
 #define POLL_SOCKET WSAPoll

@@ -267,7 +267,6 @@ bool lbridge_socket_impl_receive_data(struct lbridge_object* p_object, void* arg
 		}
 	}
 
-	const struct lbridge_client_receive_data* data_buffer = (const struct lbridge_client_receive_data*)arg;
 	uint32_t total_received = 0;
 	while (total_received < receive_data->requested_size)
 	{
