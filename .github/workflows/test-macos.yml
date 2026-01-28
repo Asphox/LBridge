@@ -14,8 +14,9 @@ jobs:
         include:
           - runner: macos-14
             name: ARM64 (aarch64)
-          - runner: macos-15-large
-            name: x86_64 (Intel)
+          # Disabled: requires paid runner
+          # - runner: macos-15-large
+          #   name: x86_64 (Intel)
 
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.name }}

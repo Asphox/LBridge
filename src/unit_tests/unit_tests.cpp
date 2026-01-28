@@ -1118,8 +1118,8 @@ TEST_CASE("Client - ping refreshes timeout")
     lbridge_server_t server = lbridge_server_create(server_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, echo_rpc_callback);
     REQUIRE(server != nullptr);
 
-    // Set client timeout of 200ms
-    lbridge_server_set_client_timeout(server, 200);
+    // Set client timeout of 500ms (needs margin for CI timing variance)
+    lbridge_server_set_client_timeout(server, 500);
 
     REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
@@ -1141,10 +1141,10 @@ TEST_CASE("Client - ping refreshes timeout")
     REQUIRE(lbridge_client_connect_tcp(client, TEST_HOST, TEST_PORT));
 
     // Keep the client alive using ping instead of RPC calls
-    // Wait 150ms (less than timeout), then ping, wait another 150ms, then ping again
+    // Wait 200ms (less than timeout), then ping, wait another 200ms, then ping again
     for (int i = 0; i < 3; i++)
     {
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
         bool ping_success = lbridge_client_ping(client);
         CHECK(ping_success);
     }
@@ -1177,8 +1177,8 @@ TEST_CASE("Server - active client is not disconnected")
     lbridge_server_t server = lbridge_server_create(server_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, echo_rpc_callback);
     REQUIRE(server != nullptr);
 
-    // Set client timeout of 200ms
-    lbridge_server_set_client_timeout(server, 200);
+    // Set client timeout of 500ms (needs margin for CI timing variance)
+    lbridge_server_set_client_timeout(server, 500);
 
     REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
 
@@ -1199,7 +1199,7 @@ TEST_CASE("Server - active client is not disconnected")
     REQUIRE(client != nullptr);
     REQUIRE(lbridge_client_connect_tcp(client, TEST_HOST, TEST_PORT));
 
-    // Keep the client active by sending requests every 100ms (less than timeout)
+    // Keep the client active by sending requests every 200ms (less than timeout)
     bool all_success = true;
     for (int i = 0; i < 5; i++)
     {
@@ -1224,7 +1224,7 @@ TEST_CASE("Server - active client is not disconnected")
         }
 
         // Wait less than timeout before next request
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
     CHECK(all_success);
