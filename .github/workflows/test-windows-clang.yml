@@ -11,13 +11,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [64, 32]
         include:
-          - arch: 64
-            name: x86_64
+          - name: x86_64
             flags: -m64
-          - arch: 32
-            name: x86
+          - name: x86
             flags: -m32
 
     runs-on: windows-latest
