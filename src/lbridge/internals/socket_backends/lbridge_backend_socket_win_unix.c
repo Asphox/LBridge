@@ -136,6 +136,10 @@ bool lbridge_tcp_server_impl_open(struct lbridge_server* p_server, void* arg)
 	// Set socket options (reuse address)
 	int opt = 1;
 	setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+#if defined(SO_REUSEPORT) && !defined(_WIN32)
+	// On Linux/macOS, SO_REUSEPORT allows binding to a port in TIME_WAIT state
+	setsockopt(s, SOL_SOCKET, SO_REUSEPORT, (const char*)&opt, sizeof(opt));
+#endif
 
 	if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) != 0)
 	{
