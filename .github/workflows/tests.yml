@@ -76,18 +76,45 @@ jobs:
         run: ./build/bin/lbridge_test.exe
         timeout-minutes: 2
 
-  test-unix:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            name: Linux
-          - os: macos-latest
-            name: macOS
+  test-linux-gcc:
+    runs-on: ubuntu-latest
+    name: Linux - GCC
 
-    runs-on: ${{ matrix.os }}
-    name: ${{ matrix.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: ./build/bin/lbridge_test
+        timeout-minutes: 2
+
+  test-linux-clang:
+    runs-on: ubuntu-latest
+    name: Linux - Clang
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_BUILD_TESTS=ON -DLBRIDGE_ENABLE_SECURE=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: ./build/bin/lbridge_test
+        timeout-minutes: 2
+
+  test-macos:
+    runs-on: macos-latest
+    name: macOS
 
     steps:
       - name: Checkout
