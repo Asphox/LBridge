@@ -390,7 +390,7 @@ lbl_return:
 	return result;
 }
 
-bool __lbridge_close(lbridge_object_t p_object, struct lbridge_connection* p_connection, enum lbridge_protocol_error error)
+bool __lbridge_close_connection(lbridge_object_t p_object, struct lbridge_connection* p_connection, enum lbridge_protocol_error error)
 {
 	if (p_object == NULL || p_connection == NULL)
 	{
@@ -419,9 +419,8 @@ bool __lbridge_close(lbridge_object_t p_object, struct lbridge_connection* p_con
 		close_sent = __lbridge_send_data(p_object, raw_data, sizeof(struct lbridge_frame), p_connection);
 	}
 
+	const bool connection_closed = obj->backend(LBRIDGE_OP_CONNECTION_CLOSE, obj, p_connection);
 	p_connection->connected = false;
-	enum lbridge_backend_operation op = (obj->object_type == LBRIDGE_CLIENT) ? LBRIDGE_OP_CLIENT_CLOSE : LBRIDGE_OP_SERVER_CLOSE;
-	const bool connection_closed = obj->backend(op, obj, p_connection);
 	return close_sent && connection_closed;
 }
 
@@ -529,7 +528,7 @@ bool lbridge_rpc_context_send_error(const lbridge_rpc_context_t ctx, enum lbridg
 	{
 		return false;
 	}
-	return __lbridge_close(ctx->object, ctx->connection, error);
+	return __lbridge_close_connection(ctx->object, ctx->connection, error);
 }
 
 
@@ -676,7 +675,7 @@ void lbridge_client_destroy(lbridge_client_t p_client)
 
 	if (p_client->connection.connected)
 	{
-		__lbridge_close(p_client, &p_client->connection, LBRIDGE_PROTOCOL_ERROR_NONE);
+		__lbridge_close_connection(p_client, &p_client->connection, LBRIDGE_PROTOCOL_ERROR_NONE);
 	}
 
 	if (p_client->base.backend != NULL)
@@ -858,7 +857,7 @@ void lbridge_server_destroy(lbridge_server_t p_server)
 			struct lbridge_connection_async* p_connection = &p_server->connections.array[i_connection];
 			if (p_connection->base.connected)
 			{
-				__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_NONE);
+				__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_NONE);
 			}
 			__lbridge_server_free_connection(p_server, p_connection);
 		}
@@ -867,7 +866,7 @@ void lbridge_server_destroy(lbridge_server_t p_server)
 	// Close the listening socket
 	if (p_server->base.backend != NULL && p_server->backend_data != NULL)
 	{
-		p_server->base.backend(LBRIDGE_OP_SERVER_CLOSE, p_server, NULL);
+		p_server->base.backend(LBRIDGE_OP_SERVER_CLEANUP, p_server, NULL);
 	}
 
 	struct lbridge_context* context = __lbridge_object_get_context(p_server);
@@ -906,7 +905,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	// hanshake frame must be start=1, end=1, cmd=1
 	if (!__lbridge_frame_is_start(handshake_frame) || !__lbridge_frame_is_end(handshake_frame) || !__lbridge_frame_is_cmd(handshake_frame))
 	{
-		__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INVALID_FRAME_FLAG);
+		__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INVALID_FRAME_FLAG);
 		return false;
 	}
 	// handshake frame opcode must be HELLO
@@ -914,7 +913,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	const uint8_t opcode = (uint8_t)((cmd_data & LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_MASK) >> LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_OFFSET);
 	if (opcode != LBRIDGE_FRAME_HEADER_CMD_HELLO_OPCODE)
 	{
-		__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INVALID_OPCODE_HANDSHAKE);
+		__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INVALID_OPCODE_HANDSHAKE);
 		return false;
 	}
 
@@ -931,13 +930,13 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 		// if server has no encryption key, we cannot proceed
 		if (p_server->base.encryption_key_256bits == NULL)
 		{
-			__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_ENCRYPTION_NOT_ACTIVATED_ON_SERVER);
+			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_ENCRYPTION_NOT_ACTIVATED_ON_SERVER);
 			return false;
 		}
 		// 12 bytes of nonce in payload
 		if (!__lbridge_receive_data(p_server, (uint8_t*)handshake_frame + sizeof(struct lbridge_frame), 12, &received_size, (struct lbridge_connection*)p_connection, 0))
 		{
-			__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_HANDSHAKE_ERROR);
+			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_HANDSHAKE_ERROR);
 			return false;
 		}
 		if (received_size < 12)
@@ -951,7 +950,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 		// generate random nonce (12 bytes)
 		if (!context->params.fp_generate_nonce(context, server_nonce))
 		{
-			__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INTERNAL);
+			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INTERNAL);
 			return false;
 		}
 		for (uint8_t i = 0; i < 12; ++i)
@@ -987,7 +986,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	__lbridge_frame_set_payload_length(handshake_frame, negotiated_max_payload_size); // in the handshake only, the payload length indicates the size of the max data size field (2 bytes)
 	if (!__lbridge_send_data(p_server, (const uint8_t*)handshake_frame, sizeof(struct lbridge_frame) + (client_encryption_flag ? 12 : 0), (struct lbridge_connection*)p_connection))
 	{
-		__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_HANDSHAKE_ERROR);
+		__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_HANDSHAKE_ERROR);
 		return false;
 	}
 
@@ -1089,7 +1088,7 @@ void __lbridge_server_remove_connection(lbridge_server_t p_server, uint32_t inde
 	struct lbridge_connection_async* connection = &p_server->connections.array[index];
 	if (connection->base.connected)
 	{
-		__lbridge_close(p_server, (struct lbridge_connection*)connection, error);
+		__lbridge_close_connection(p_server, (struct lbridge_connection*)connection, error);
 	}
 	__lbridge_server_free_connection(p_server, connection);
 	// shift remaining connections

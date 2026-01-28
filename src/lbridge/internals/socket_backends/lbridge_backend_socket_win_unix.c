@@ -92,20 +92,17 @@ bool lbridge_tcp_client_impl_connect(struct lbridge_client* p_client, void* arg)
 	return true;
 }
 
-bool lbridge_tcp_client_impl_disconnect(struct lbridge_client* p_client)
-{
-	socket_t s = PTR_TO_SOCKET(p_client->connection.as_ptr);
-	if(IS_VALID_SOCKET(s))
-	{
-		CLOSE_SOCKET(s);
-		p_client->connection.as_ptr = NULL;
-	}
-	return true;
-}
-
 bool lbridge_tcp_client_impl_cleanup(struct lbridge_client* p_client)
 {
-	memset(&p_client->connection, 0, sizeof(p_client->connection));
+	if (p_client->connection.connected)
+	{
+		socket_t s = PTR_TO_SOCKET(p_client->connection.as_ptr);
+		if (IS_VALID_SOCKET(s))
+		{
+			CLOSE_SOCKET(s);
+			p_client->connection.as_ptr = NULL;
+		}
+	}
 	return true;
 }
 
@@ -174,8 +171,7 @@ bool lbridge_tcp_server_impl_open(struct lbridge_server* p_server, void* arg)
 	p_server->backend_data = SOCKET_TO_PTR(s);
 	return true;
 }
-
-bool lbridge_tcp_server_impl_disconnect(struct lbridge_server* p_server)
+bool lbridge_tcp_server_impl_cleanup(struct lbridge_server* p_server)
 {
 	socket_t s = PTR_TO_SOCKET(p_server->backend_data);
 	if (IS_VALID_SOCKET(s))
@@ -183,12 +179,6 @@ bool lbridge_tcp_server_impl_disconnect(struct lbridge_server* p_server)
 		CLOSE_SOCKET(s);
 		p_server->backend_data = NULL;
 	}
-	return true;
-}
-
-bool lbridge_tcp_server_impl_cleanup(struct lbridge_server* p_server)
-{
-	p_server->backend_data = NULL;
 	return true;
 }
 
@@ -337,6 +327,17 @@ bool lbridge_socket_impl_receive_data(struct lbridge_object* p_object, void* arg
 	return true;
 }
 
+bool lbridge_socket_impl_connection_close(struct lbridge_object* _, void* arg)
+{
+	const struct lbridge_connection* connection = (const struct lbridge_connection*)arg;
+	socket_t s = PTR_TO_SOCKET(connection->as_ptr);
+	if (IS_VALID_SOCKET(s))
+	{
+		CLOSE_SOCKET(s);
+	}
+	return true;
+}
+
 bool lbridge_backend_tcp_impl(enum lbridge_backend_operation op, lbridge_object_t p_object, void* arg)
 {
 	switch (op)
@@ -346,14 +347,10 @@ bool lbridge_backend_tcp_impl(enum lbridge_backend_operation op, lbridge_object_
 		return true;
 	case LBRIDGE_OP_CLIENT_CONNECT:
 		return lbridge_tcp_client_impl_connect(p_object, arg);
-	case LBRIDGE_OP_CLIENT_CLOSE:
-		return lbridge_tcp_client_impl_disconnect(p_object);
 	case LBRIDGE_OP_CLIENT_CLEANUP:
 		return lbridge_tcp_client_impl_cleanup(p_object);
 #endif
 #if defined(LBRIDGE_ENABLE_TCP_SERVER)
-	case LBRIDGE_OP_SERVER_CLOSE:
-		return lbridge_tcp_server_impl_disconnect(p_object);
 	case LBRIDGE_OP_SERVER_OPEN:
 		return lbridge_tcp_server_impl_open(p_object, arg);
 	case LBRIDGE_OP_SERVER_CLEANUP:
@@ -365,6 +362,8 @@ bool lbridge_backend_tcp_impl(enum lbridge_backend_operation op, lbridge_object_
 		return lbridge_socket_impl_send_data(p_object, arg);
 	case LBRIDGE_OP_RECEIVE_DATA:
 		return lbridge_socket_impl_receive_data(p_object, arg);
+	case LBRIDGE_OP_CONNECTION_CLOSE:
+		return lbridge_socket_impl_connection_close(p_object, arg);
 	default:
 		return false;
 	}
@@ -474,20 +473,17 @@ bool lbridge_unix_client_impl_connect(struct lbridge_client* p_client, void* arg
 	return true;
 }
 
-bool lbridge_unix_client_impl_disconnect(struct lbridge_client* p_client)
-{
-	socket_t s = PTR_TO_SOCKET(p_client->connection.as_ptr);
-	if (IS_VALID_SOCKET(s))
-	{
-		CLOSE_SOCKET(s);
-		p_client->connection.as_ptr = NULL;
-	}
-	return true;
-}
-
 bool lbridge_unix_client_impl_cleanup(struct lbridge_client* p_client)
 {
-	memset(&p_client->connection, 0, sizeof(p_client->connection));
+	if (p_client->connection.connected)
+	{
+		socket_t s = PTR_TO_SOCKET(p_client->connection.as_ptr);
+		if (IS_VALID_SOCKET(s))
+		{
+			CLOSE_SOCKET(s);
+			p_client->connection.as_ptr = NULL;
+		}
+	}
 	return true;
 }
 
@@ -555,7 +551,7 @@ bool lbridge_unix_server_impl_open(struct lbridge_server* p_server, void* arg)
 	return true;
 }
 
-bool lbridge_unix_server_impl_disconnect(struct lbridge_server* p_server)
+bool lbridge_unix_server_impl_cleanup(struct lbridge_server* p_server)
 {
 	socket_t s = PTR_TO_SOCKET(p_server->backend_data);
 	if (IS_VALID_SOCKET(s))
@@ -563,12 +559,6 @@ bool lbridge_unix_server_impl_disconnect(struct lbridge_server* p_server)
 		CLOSE_SOCKET(s);
 		p_server->backend_data = NULL;
 	}
-	return true;
-}
-
-bool lbridge_unix_server_impl_cleanup(struct lbridge_server* p_server)
-{
-	p_server->backend_data = NULL;
 	return true;
 }
 
@@ -619,14 +609,10 @@ bool lbridge_backend_unix_impl(enum lbridge_backend_operation op, lbridge_object
 		return true;
 	case LBRIDGE_OP_CLIENT_CONNECT:
 		return lbridge_unix_client_impl_connect(p_object, arg);
-	case LBRIDGE_OP_CLIENT_CLOSE:
-		return lbridge_unix_client_impl_disconnect(p_object);
 	case LBRIDGE_OP_CLIENT_CLEANUP:
 		return lbridge_unix_client_impl_cleanup(p_object);
 #endif
 #if defined(LBRIDGE_ENABLE_UNIX_SERVER)
-	case LBRIDGE_OP_SERVER_CLOSE:
-		return lbridge_unix_server_impl_disconnect(p_object);
 	case LBRIDGE_OP_SERVER_OPEN:
 		return lbridge_unix_server_impl_open(p_object, arg);
 	case LBRIDGE_OP_SERVER_CLEANUP:
@@ -638,6 +624,8 @@ bool lbridge_backend_unix_impl(enum lbridge_backend_operation op, lbridge_object
 		return lbridge_socket_impl_send_data(p_object, arg);
 	case LBRIDGE_OP_RECEIVE_DATA:
 		return lbridge_socket_impl_receive_data(p_object, arg);
+	case LBRIDGE_OP_CONNECTION_CLOSE:
+		return lbridge_socket_impl_connection_close(p_object, arg);
 	default:
 		return false;
 	}
