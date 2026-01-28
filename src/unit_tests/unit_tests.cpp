@@ -3,6 +3,7 @@
 
 int main(int argc, char** argv) {
     doctest::Context context;
+	context.setOption("success", true);
     context.setOption("no-breaks", true);
     context.applyCommandLine(argc, argv);
     return context.run();
