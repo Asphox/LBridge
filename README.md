@@ -630,3 +630,16 @@ MIT License - See LICENSE file for details.
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request.
+
+---
+
+## Latest Tests
+
+| Platform | Compiler | Status |
+|----------|----------|--------|
+| Windows | MSVC 2022 | [![Windows MSVC](https://github.com/Asphox/LBridge/actions/workflows/test-windows-msvc.yml/badge.svg)](https://github.com/Asphox/LBridge/actions/workflows/test-windows-msvc.yml) |
+| Windows | Clang | [![Windows Clang](https://github.com/Asphox/LBridge/actions/workflows/test-windows-clang.yml/badge.svg)](https://github.com/Asphox/LBridge/actions/workflows/test-windows-clang.yml) |
+| Windows | MinGW | [![Windows MinGW](https://github.com/Asphox/LBridge/actions/workflows/test-windows-mingw.yml/badge.svg)](https://github.com/Asphox/LBridge/actions/workflows/test-windows-mingw.yml) |
+| Linux | GCC | [![Linux GCC](https://github.com/Asphox/LBridge/actions/workflows/test-linux-gcc.yml/badge.svg)](https://github.com/Asphox/LBridge/actions/workflows/test-linux-gcc.yml) |
+| Linux | Clang | [![Linux Clang](https://github.com/Asphox/LBridge/actions/workflows/test-linux-clang.yml/badge.svg)](https://github.com/Asphox/LBridge/actions/workflows/test-linux-clang.yml) |
+| macOS | Apple Clang | [![macOS](https://github.com/Asphox/LBridge/actions/workflows/test-macos.yml/badge.svg)](https://github.com/Asphox/LBridge/actions/workflows/test-macos.yml) |
