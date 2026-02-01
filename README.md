@@ -9,6 +9,17 @@
 
 **LBridge** is a lightweight, cross-platform RPC (Remote Procedure Call) library written in C, designed for embedded systems, IoT devices, and inter-process communication.
 
+## Transport Status
+
+| Transport | Windows | Linux | macOS | Status |
+|-----------|:-------:|:-----:|:-----:|--------|
+| TCP Socket | :white_check_mark: | :white_check_mark: | :white_check_mark: | Done |
+| Unix Socket | :white_check_mark: | :white_check_mark: | :white_check_mark: | Done |
+| Bluetooth | :construction: | :construction: | | In Progress |
+| BLE | :clipboard: | :clipboard: | | Planned |
+| Serial | :clipboard: | :clipboard: | :clipboard: | Planned |
+| Shared Memory | :clipboard: | :clipboard: | :clipboard: | Planned |
+
 ## Features
 
 - **Minimal footprint** - Small memory and code size
