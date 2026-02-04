@@ -1,3 +1,14 @@
+// Feature test macros for POSIX functions
+// Must be defined before including any system headers
+#if !defined(_WIN32)
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200112L
+#endif
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+#endif
+
 #include "../lbridge_internal.h"
 
 #if defined(LBRIDGE_ENABLE_BLUETOOTH_CLIENT) || defined(LBRIDGE_ENABLE_BLUETOOTH_SERVER)
