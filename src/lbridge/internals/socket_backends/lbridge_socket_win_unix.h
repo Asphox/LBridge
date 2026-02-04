@@ -98,6 +98,11 @@ static inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking
 
 #endif
 
+// Shared socket I/O functions (used by TCP, Unix, and Bluetooth backends)
+bool lbridge_socket_impl_send_data(struct lbridge_object* p_object, void* arg);
+bool lbridge_socket_impl_receive_data(struct lbridge_object* p_object, void* arg);
+bool lbridge_socket_impl_connection_close(struct lbridge_object* p_object, void* arg);
+
 #ifdef __cplusplus
 }
 #endif

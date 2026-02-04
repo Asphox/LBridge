@@ -15,7 +15,7 @@
 |-----------|:-------:|:-----:|:-----:|--------|
 | TCP Socket | :white_check_mark: | :white_check_mark: | :white_check_mark: | Done |
 | Unix Socket | :white_check_mark: | :white_check_mark: | :white_check_mark: | Done |
-| Bluetooth | :construction: | :construction: | | In Progress |
+| Bluetooth RFCOMM | :white_check_mark: | :white_check_mark: | | Done |
 | BLE | :clipboard: | :clipboard: | | Planned |
 | Serial | :clipboard: | :clipboard: | :clipboard: | Planned |
 | Shared Memory | :clipboard: | :clipboard: | :clipboard: | Planned |
@@ -24,7 +24,7 @@
 
 - **Minimal footprint** - Small memory and code size
 - **Cross-platform** - Windows (WinSock2) and Unix (POSIX sockets)
-- **Multiple transports** - TCP/IP and Unix domain sockets (Windows 10 1803+, Linux, macOS)
+- **Multiple transports** - TCP/IP, Unix domain sockets, and Bluetooth RFCOMM
 - **Optional encryption** - ChaCha20-Poly1305 AEAD cipher
 - **Message fragmentation** - Large payloads split across multiple frames
 - **Custom allocators** - Bring your own malloc/free
@@ -75,6 +75,8 @@ cmake --build build --config Release
 | `LBRIDGE_ENABLE_TCP_SERVER` | Enable TCP server transport |
 | `LBRIDGE_ENABLE_UNIX_CLIENT` | Enable Unix domain socket client transport |
 | `LBRIDGE_ENABLE_UNIX_SERVER` | Enable Unix domain socket server transport |
+| `LBRIDGE_ENABLE_BLUETOOTH_CLIENT` | Enable Bluetooth RFCOMM client transport |
+| `LBRIDGE_ENABLE_BLUETOOTH_SERVER` | Enable Bluetooth RFCOMM server transport |
 
 ---
 
@@ -213,6 +215,69 @@ int main()
 }
 ```
 
+### Bluetooth RFCOMM (Server)
+
+```c
+#include "lbridge.h"
+
+// Same RPC callback as TCP...
+
+int main()
+{
+    struct lbridge_context_params params = {
+        .fp_generate_nonce = my_nonce_generator,
+        .fp_get_time_ms = NULL
+    };
+
+    lbridge_context_t ctx = lbridge_context_create(&params);
+    lbridge_server_t server = lbridge_server_create(ctx, 1024, 65536, on_rpc_call);
+
+    // Listen on Bluetooth RFCOMM channel 1
+    // Channel range: 1-30
+    lbridge_server_listen_bluetooth(server, 1, 10);
+
+    while (1) {
+        lbridge_server_update(server);
+    }
+
+    lbridge_server_destroy(server);
+    lbridge_context_destroy(ctx);
+}
+```
+
+### Bluetooth RFCOMM (Client)
+
+```c
+#include "lbridge.h"
+
+int main()
+{
+    struct lbridge_context_params params = {
+        .fp_generate_nonce = my_nonce_generator,
+    };
+
+    lbridge_context_t ctx = lbridge_context_create(&params);
+    lbridge_client_t client = lbridge_client_create(ctx, 1024, 65536);
+
+    // Connect to Bluetooth device by MAC address and RFCOMM channel
+    // Address format: "XX:XX:XX:XX:XX:XX"
+    // Channel range: 1-30
+    if (lbridge_client_connect_bluetooth(client, "00:1A:7D:DA:71:13", 1))
+    {
+        uint8_t buffer[256] = { 0xAA, 0xBB, 0xCC };
+        uint32_t size = 3;
+
+        if (lbridge_client_call_rpc(client, 0x1234, buffer, &size, sizeof(buffer)))
+        {
+            // buffer now contains response
+        }
+    }
+
+    lbridge_client_destroy(client);
+    lbridge_context_destroy(ctx);
+}
+```
+
 ---
 
 ## API Reference
@@ -231,11 +296,14 @@ lbridge_client_t lbridge_client_create(lbridge_context_t ctx, uint16_t max_frame
 void lbridge_client_destroy(lbridge_client_t client);
 bool lbridge_client_connect_tcp(lbridge_client_t client, const char* host, uint16_t port);
 bool lbridge_client_connect_unix(lbridge_client_t client, const char* socket_path);
+bool lbridge_client_connect_bluetooth(lbridge_client_t client, const char* address, uint8_t channel);
 bool lbridge_client_call_rpc(lbridge_client_t client, uint16_t rpc_id, uint8_t* inout_data, uint32_t* inout_size, uint32_t max_out_size);
 bool lbridge_client_ping(lbridge_client_t client);
 ```
 
 > **Note:** `lbridge_client_connect_unix()` connects via Unix domain socket. On Windows, Unix domain sockets are supported since Windows 10 version 1803.
+
+> **Note:** `lbridge_client_connect_bluetooth()` connects via Bluetooth RFCOMM. The `address` parameter is the Bluetooth MAC address in format `"XX:XX:XX:XX:XX:XX"`. The `channel` parameter is the RFCOMM channel number (1-30). On Windows, requires the Windows Bluetooth stack. On Linux, requires BlueZ.
 
 > **Note:** `lbridge_client_ping()` sends a lightweight keep-alive command to the server to refresh the inactivity timeout. Useful when the server has client timeout enabled and the client needs to stay connected without sending actual RPCs.
 
@@ -246,13 +314,16 @@ lbridge_server_t lbridge_server_create(lbridge_context_t ctx, uint16_t max_frame
 void lbridge_server_destroy(lbridge_server_t server);
 bool lbridge_server_listen_tcp(lbridge_server_t server, const char* address, uint16_t port, uint32_t max_clients);
 bool lbridge_server_listen_unix(lbridge_server_t server, const char* socket_path, uint32_t max_clients);
+bool lbridge_server_listen_bluetooth(lbridge_server_t server, uint8_t channel, uint32_t max_clients);
 bool lbridge_server_update(lbridge_server_t server);
 void lbridge_server_set_client_timeout(lbridge_server_t server, uint32_t timeout_ms);
 ```
 
-> **Note:** The `max_clients` parameter is passed to `lbridge_server_listen_tcp()` / `lbridge_server_listen_unix()` rather than `lbridge_server_create()` because the maximum number of connections is transport-specific. For example, serial transports only support a single connection.
+> **Note:** The `max_clients` parameter is passed to `lbridge_server_listen_*()` functions rather than `lbridge_server_create()` because the maximum number of connections is transport-specific. For example, serial transports only support a single connection.
 
 > **Note:** `lbridge_server_listen_unix()` creates a Unix domain socket at the specified path. If a socket file already exists at that path, it will be removed before creating the new socket. On Windows, Unix domain sockets are supported since Windows 10 version 1803.
+
+> **Note:** `lbridge_server_listen_bluetooth()` listens on the specified RFCOMM channel (1-30). On Windows, requires the Windows Bluetooth stack. On Linux, requires BlueZ.
 
 > **Note:** `lbridge_server_set_client_timeout()` sets the inactivity timeout for clients. If a client doesn't send any data for the specified duration, it will be automatically disconnected. This feature requires `fp_get_time_ms` to be set in the context params. Set to 0 to disable (default).
 

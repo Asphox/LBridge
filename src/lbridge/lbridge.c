@@ -796,6 +796,34 @@ bool lbridge_client_connect_unix(lbridge_client_t p_client, const char* socket_p
 }
 #endif
 
+#if defined(LBRIDGE_ENABLE_BLUETOOTH_CLIENT)
+
+bool lbridge_client_connect_bluetooth(lbridge_client_t p_client, const char* address, uint8_t channel)
+{
+	if (p_client == NULL || address == NULL)
+	{
+		return false;
+	}
+	if (channel < 1 || channel > 30)
+	{
+		__lbridge_object_set_error(p_client, LBRIDGE_ERROR_BAD_ARGUMENT);
+		return false;
+	}
+	__lbridge_object_set_error(p_client, LBRIDGE_ERROR_NONE);
+	p_client->base.type = LBRIDGE_TYPE_BLUETOOTH;
+	p_client->base.backend = &lbridge_backend_bluetooth_impl;
+	struct lbridge_bluetooth_connection_data connection_data;
+	connection_data.address = address;
+	connection_data.channel = channel;
+	const bool connected = p_client->base.backend(LBRIDGE_OP_CLIENT_CONNECT, p_client, &connection_data);
+	if (!connected)
+	{
+		return false;
+	}
+	return __lbridge_client_handshake(p_client);
+}
+#endif
+
 #endif // LBRIDGE_ENABLE_CLIENT
 #if defined(LBRIDGE_ENABLE_SERVER)
 
@@ -1078,6 +1106,41 @@ bool LBRIDGE_API lbridge_server_listen_unix(lbridge_server_t p_server, const cha
 }
 
 #endif // LBRIDGE_ENABLE_UNIX_SERVER
+
+#if defined(LBRIDGE_ENABLE_BLUETOOTH_SERVER)
+
+bool LBRIDGE_API lbridge_server_listen_bluetooth(lbridge_server_t p_server, uint8_t channel, uint32_t max_nb_clients)
+{
+	if (p_server == NULL || max_nb_clients == 0)
+	{
+		return false;
+	}
+	if (channel < 1 || channel > 30)
+	{
+		__lbridge_object_set_error(p_server, LBRIDGE_ERROR_BAD_ARGUMENT);
+		return false;
+	}
+	__lbridge_object_set_error(p_server, LBRIDGE_ERROR_NONE);
+
+	if (!__lbridge_server_allocate_connections(p_server, max_nb_clients))
+	{
+		return false;
+	}
+
+	p_server->base.type = LBRIDGE_TYPE_BLUETOOTH;
+	p_server->base.backend = &lbridge_backend_bluetooth_impl;
+	struct lbridge_bluetooth_server_data server_data;
+	server_data.channel = channel;
+	const bool connected = p_server->base.backend(LBRIDGE_OP_SERVER_OPEN, p_server, &server_data);
+	if (!connected)
+	{
+		__lbridge_server_free_connections(p_server);
+		return false;
+	}
+	return true;
+}
+
+#endif // LBRIDGE_ENABLE_BLUETOOTH_SERVER
 
 void __lbridge_server_remove_connection(lbridge_server_t p_server, uint32_t index, enum lbridge_protocol_error error)
 {

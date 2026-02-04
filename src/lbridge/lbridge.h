@@ -23,12 +23,8 @@
 #define LBRIDGE_ENABLE_UNIX_CLIENT
 #endif
 
-#ifndef LBRIDGE_ENABLE_BLE_CLIENT
-#define LBRIDGE_ENABLE_BLE_CLIENT
-#endif
-
-#ifndef LBRIDGE_ENABLE_SERIAL_CLIENT
-#define LBRIDGE_ENABLE_SERIAL_CLIENT
+#ifndef LBRIDGE_ENABLE_BLUETOOTH_CLIENT
+#define LBRIDGE_ENABLE_BLUETOOTH_CLIENT
 #endif
 
 #endif // LBRIDGE_ENABLE_CLIENT
@@ -41,6 +37,10 @@
 
 #ifndef LBRIDGE_ENABLE_UNIX_SERVER
 #define LBRIDGE_ENABLE_UNIX_SERVER
+#endif
+
+#ifndef LBRIDGE_ENABLE_BLUETOOTH_SERVER
+#define LBRIDGE_ENABLE_BLUETOOTH_SERVER
 #endif
 
 #endif // LBRIDGE_ENABLE_SERVER
@@ -130,8 +130,8 @@ enum lbridge_type
 {
 	LBRIDGE_TYPE_UNKNOWN = 0, /**< Unknown or uninitialized transport type. */
 	LBRIDGE_TYPE_TCP,         /**< TCP/IP socket transport. */
-	LBRIDGE_TYPE_UNIX,        /**< Unix domain socket transport (not yet implemented). */
-	LBRIDGE_TYPE_BLE,         /**< Bluetooth Low Energy transport (not yet implemented). */
+	LBRIDGE_TYPE_UNIX,        /**< Unix domain socket transport. */
+	LBRIDGE_TYPE_BLUETOOTH,   /**< Bluetooth RFCOMM transport. */
 	LBRIDGE_TYPE_SERIAL       /**< Serial port transport (not yet implemented). */
 };
 
@@ -387,6 +387,23 @@ bool LBRIDGE_API lbridge_client_connect_tcp(lbridge_client_t client, const char*
 bool LBRIDGE_API lbridge_client_connect_unix(lbridge_client_t client, const char* socket_path);
 #endif
 
+#if defined(LBRIDGE_ENABLE_BLUETOOTH_CLIENT)
+/**
+ * @brief Connects a client to a server via Bluetooth RFCOMM.
+ *
+ * @param client  The client to connect.
+ * @param address The Bluetooth MAC address of the server (format: "XX:XX:XX:XX:XX:XX").
+ * @param channel The RFCOMM channel number (1-30).
+ *
+ * @return true if the connection was established successfully, false otherwise.
+ *
+ * @note Use lbridge_get_last_error() to retrieve the error code on failure.
+ * @note On Windows, requires Windows Bluetooth stack.
+ * @note On Linux, requires BlueZ.
+ */
+bool LBRIDGE_API lbridge_client_connect_bluetooth(lbridge_client_t client, const char* address, uint8_t channel);
+#endif
+
 #endif // LBRIDGE_ENABLE_CLIENT
 
 #if defined(LBRIDGE_ENABLE_SERVER)
@@ -480,6 +497,23 @@ bool LBRIDGE_API lbridge_server_listen_tcp(lbridge_server_t server, const char* 
  */
 bool LBRIDGE_API lbridge_server_listen_unix(lbridge_server_t server, const char* socket_path, uint32_t max_nb_clients);
 #endif // LBRIDGE_ENABLE_UNIX_SERVER
+
+#if defined(LBRIDGE_ENABLE_BLUETOOTH_SERVER)
+/**
+ * @brief Starts the server listening for Bluetooth RFCOMM connections.
+ *
+ * @param server         The server to start.
+ * @param channel        The RFCOMM channel number to listen on (1-30).
+ * @param max_nb_clients Maximum number of simultaneous client connections.
+ *
+ * @return true if the server started successfully, false otherwise.
+ *
+ * @note Use lbridge_get_last_error() to retrieve the error code on failure.
+ * @note On Windows, requires Windows Bluetooth stack.
+ * @note On Linux, requires BlueZ.
+ */
+bool LBRIDGE_API lbridge_server_listen_bluetooth(lbridge_server_t server, uint8_t channel, uint32_t max_nb_clients);
+#endif // LBRIDGE_ENABLE_BLUETOOTH_SERVER
 
 #endif // LBRIDGE_ENABLE_SERVER
 

@@ -10,6 +10,7 @@ set(LBRIDGE_SOURCES
     src/lbridge/lbridge.c
     src/lbridge/internals/socket_backends/lbridge_backend_socket_win_unix.c
     src/lbridge/internals/socket_backends/lbridge_win_wsa_init.c
+    src/lbridge/internals/socket_backends/lbridge_backend_bluetooth.c
 )
 
 # mbedtls sources (only if encryption enabled)
@@ -71,9 +72,15 @@ else()
     )
 endif()
 
-# Link libraries (Windows)
+# Link libraries
 if(WIN32)
-    target_link_libraries(lbridge PUBLIC ws2_32 bcrypt)
+    target_link_libraries(lbridge PUBLIC ws2_32 bcrypt bthprops)
+elseif(UNIX AND NOT APPLE)
+    # Linux: link with BlueZ Bluetooth library
+    find_library(BLUETOOTH_LIB bluetooth)
+    if(BLUETOOTH_LIB)
+        target_link_libraries(lbridge PUBLIC ${BLUETOOTH_LIB})
+    endif()
 endif()
 
 # Output directories (all configs to same folder)

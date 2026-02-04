@@ -55,6 +55,25 @@ struct lbridge_unix_server_data
 };
 #endif // LBRIDGE_ENABLE_UNIX_SERVER
 
+#if defined(LBRIDGE_ENABLE_BLUETOOTH_CLIENT) || defined(LBRIDGE_ENABLE_BLUETOOTH_SERVER)
+bool lbridge_backend_bluetooth_impl(enum lbridge_backend_operation op, lbridge_object_t p_object, void* arg);
+#endif
+
+#ifdef LBRIDGE_ENABLE_BLUETOOTH_CLIENT
+struct lbridge_bluetooth_connection_data
+{
+	const char* address;  // Bluetooth MAC address "XX:XX:XX:XX:XX:XX"
+	uint8_t channel;      // RFCOMM channel (1-30)
+};
+#endif // LBRIDGE_ENABLE_BLUETOOTH_CLIENT
+
+#ifdef LBRIDGE_ENABLE_BLUETOOTH_SERVER
+struct lbridge_bluetooth_server_data
+{
+	uint8_t channel;  // RFCOMM channel (1-30)
+};
+#endif // LBRIDGE_ENABLE_BLUETOOTH_SERVER
+
 #ifdef __cplusplus
 }
 #endif
