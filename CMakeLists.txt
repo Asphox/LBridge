@@ -4,14 +4,21 @@ project(LBridge C CXX)
 # Options
 option(LBRIDGE_BUILD_TESTS "Build test executable" OFF)
 option(LBRIDGE_ENABLE_SECURE "Enable ChaCha20-Poly1305 encryption" ON)
+option(LBRIDGE_ENABLE_BLUETOOTH "Enable Bluetooth RFCOMM transport" OFF)
 
 # Library source files
 set(LBRIDGE_SOURCES
     src/lbridge/lbridge.c
     src/lbridge/internals/socket_backends/lbridge_backend_socket_win_unix.c
     src/lbridge/internals/socket_backends/lbridge_win_wsa_init.c
-    src/lbridge/internals/socket_backends/lbridge_backend_bluetooth.c
 )
+
+# Bluetooth source (optional)
+if(LBRIDGE_ENABLE_BLUETOOTH)
+    list(APPEND LBRIDGE_SOURCES
+        src/lbridge/internals/socket_backends/lbridge_backend_bluetooth.c
+    )
+endif()
 
 # mbedtls sources (only if encryption enabled)
 if(LBRIDGE_ENABLE_SECURE)
@@ -54,6 +61,10 @@ if(LBRIDGE_ENABLE_SECURE)
     target_compile_definitions(lbridge PUBLIC LBRIDGE_ENABLE_SECURE)
 endif()
 
+if(LBRIDGE_ENABLE_BLUETOOTH)
+    target_compile_definitions(lbridge PUBLIC LBRIDGE_ENABLE_BLUETOOTH)
+endif()
+
 # Compiler flags
 if(MSVC)
     target_compile_options(lbridge PRIVATE
@@ -74,12 +85,19 @@ endif()
 
 # Link libraries
 if(WIN32)
-    target_link_libraries(lbridge PUBLIC ws2_32 bcrypt bthprops)
+    target_link_libraries(lbridge PUBLIC ws2_32 bcrypt)
+    if(LBRIDGE_ENABLE_BLUETOOTH)
+        target_link_libraries(lbridge PUBLIC bthprops)
+    endif()
 elseif(UNIX AND NOT APPLE)
-    # Linux: link with BlueZ Bluetooth library
-    find_library(BLUETOOTH_LIB bluetooth)
-    if(BLUETOOTH_LIB)
-        target_link_libraries(lbridge PUBLIC ${BLUETOOTH_LIB})
+    if(LBRIDGE_ENABLE_BLUETOOTH)
+        # Linux: link with BlueZ Bluetooth library
+        find_library(BLUETOOTH_LIB bluetooth)
+        if(BLUETOOTH_LIB)
+            target_link_libraries(lbridge PUBLIC ${BLUETOOTH_LIB})
+        else()
+            message(FATAL_ERROR "Bluetooth enabled but libbluetooth not found. Install libbluetooth-dev or disable LBRIDGE_ENABLE_BLUETOOTH.")
+        endif()
     endif()
 endif()
 
@@ -132,5 +150,6 @@ endif()
 message(STATUS "")
 message(STATUS "LBridge Configuration:")
 message(STATUS "  Encryption (ChaCha20-Poly1305): ${LBRIDGE_ENABLE_SECURE}")
+message(STATUS "  Bluetooth RFCOMM: ${LBRIDGE_ENABLE_BLUETOOTH}")
 message(STATUS "  Build tests: ${LBRIDGE_BUILD_TESTS}")
 message(STATUS "")

@@ -15,10 +15,12 @@
 |-----------|:-------:|:-----:|:-----:|--------|
 | TCP Socket | :white_check_mark: | :white_check_mark: | :white_check_mark: | Done |
 | Unix Socket | :white_check_mark: | :white_check_mark: | :white_check_mark: | Done |
-| Bluetooth RFCOMM | :white_check_mark: | :white_check_mark: | | Done |
+| Bluetooth RFCOMM | :white_check_mark:* | :white_check_mark:* | | Done |
 | BLE | :clipboard: | :clipboard: | | Planned |
 | Serial | :clipboard: | :clipboard: | :clipboard: | Planned |
 | Shared Memory | :clipboard: | :clipboard: | :clipboard: | Planned |
+
+\* Bluetooth requires `-DLBRIDGE_ENABLE_BLUETOOTH=ON` and platform dependencies (BlueZ dev on Linux)
 
 ## Features
 
@@ -62,6 +64,9 @@ cmake --build build --config Release
 
 # Run tests
 ./build/bin/lbridge_test
+
+# Enable Bluetooth support (requires BlueZ on Linux, Windows Bluetooth stack on Windows)
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DLBRIDGE_ENABLE_BLUETOOTH=ON
 ```
 
 ### Compile-time Options
