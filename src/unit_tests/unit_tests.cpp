@@ -59,6 +59,9 @@ static uint64_t get_time_ms_impl(lbridge_context_t ctx)
 
 #else // Linux and other POSIX systems
 #include <time.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <unistd.h>
 
 static uint64_t get_time_ms_impl(lbridge_context_t ctx)
 {
