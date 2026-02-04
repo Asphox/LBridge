@@ -292,7 +292,7 @@ bool lbridge_bluetooth_server_impl_open(struct lbridge_server* p_server, void* a
         return false;
     }
 
-    p_server->backend_data = SOCKET_TO_PTR(s);
+    p_server->base.backend_data = SOCKET_TO_PTR(s);
     return true;
 
 #elif defined(__linux__)
@@ -336,7 +336,7 @@ bool lbridge_bluetooth_server_impl_open(struct lbridge_server* p_server, void* a
         return false;
     }
 
-    p_server->backend_data = SOCKET_TO_PTR(s);
+    p_server->base.backend_data = SOCKET_TO_PTR(s);
     return true;
 
 #else
@@ -348,11 +348,11 @@ bool lbridge_bluetooth_server_impl_open(struct lbridge_server* p_server, void* a
 
 bool lbridge_bluetooth_server_impl_cleanup(struct lbridge_server* p_server)
 {
-    bt_socket_t s = PTR_TO_SOCKET(p_server->backend_data);
+    bt_socket_t s = PTR_TO_SOCKET(p_server->base.backend_data);
     if (BT_IS_VALID_SOCKET(s))
     {
         BT_CLOSE_SOCKET(s);
-        p_server->backend_data = NULL;
+        p_server->base.backend_data = NULL;
     }
     return true;
 }
@@ -362,7 +362,7 @@ bool lbridge_bluetooth_server_impl_accept(struct lbridge_server* p_server, void*
     struct lbridge_server_accept_data* accept_data = (struct lbridge_server_accept_data*)arg;
     accept_data->new_client_accepted = false;
 
-    bt_socket_t server_socket = PTR_TO_SOCKET(p_server->backend_data);
+    bt_socket_t server_socket = PTR_TO_SOCKET(p_server->base.backend_data);
     if (!BT_IS_VALID_SOCKET(server_socket))
     {
         p_server->base.last_error = LBRIDGE_ERROR_NOT_CONNECTED;

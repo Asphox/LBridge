@@ -504,6 +504,42 @@ enum lbridge_error_code lbridge_get_last_error(const lbridge_object_t p_object)
 	return __lbridge_object_get_error(p_object);
 }
 
+void* lbridge_get_backend_data(lbridge_object_t p_object)
+{
+	if (p_object == NULL)
+	{
+		return NULL;
+	}
+	return ((struct lbridge_object*)p_object)->backend_data;
+}
+
+void lbridge_set_backend_data(lbridge_object_t p_object, void* data)
+{
+	if (p_object == NULL)
+	{
+		return;
+	}
+	((struct lbridge_object*)p_object)->backend_data = data;
+}
+
+void* lbridge_connection_get_handle(struct lbridge_connection* connection)
+{
+	if (connection == NULL)
+	{
+		return NULL;
+	}
+	return connection->as_ptr;
+}
+
+void lbridge_connection_set_handle(struct lbridge_connection* connection, void* handle)
+{
+	if (connection == NULL)
+	{
+		return;
+	}
+	connection->as_ptr = handle;
+}
+
 enum lbridge_type lbridge_client_get_type(const lbridge_client_t p_client)
 {
 	if (p_client == NULL)
@@ -824,6 +860,24 @@ bool lbridge_client_connect_bluetooth(lbridge_client_t p_client, const char* add
 }
 #endif
 
+bool lbridge_client_connect_custom(lbridge_client_t p_client, lbridge_custom_backend_fn backend, void* user_data, void* connect_arg)
+{
+	if (p_client == NULL || backend == NULL)
+	{
+		return false;
+	}
+	__lbridge_object_set_error(p_client, LBRIDGE_ERROR_NONE);
+	p_client->base.type = LBRIDGE_TYPE_CUSTOM;
+	p_client->base.backend = backend;
+	p_client->base.backend_data = user_data;
+	const bool connected = p_client->base.backend(LBRIDGE_OP_CLIENT_CONNECT, p_client, connect_arg);
+	if (!connected)
+	{
+		return false;
+	}
+	return __lbridge_client_handshake(p_client);
+}
+
 #endif // LBRIDGE_ENABLE_CLIENT
 #if defined(LBRIDGE_ENABLE_SERVER)
 
@@ -846,7 +900,7 @@ lbridge_server_t lbridge_server_create(lbridge_context_t p_context, uint16_t max
 	p_server->base.timeout_ms = 0; // Non-blocking by default for server operations
 	p_server->rpc_call = on_rpc_call;
 	p_server->base.backend = NULL;
-	p_server->backend_data = NULL;
+	p_server->base.backend_data = NULL;
 #if defined(LBRIDGE_ENABLE_SECURE)
 	p_server->base.encryption_key_256bits = NULL;
 #endif // LBRIDGE_ENABLE_SECURE
@@ -892,7 +946,7 @@ void lbridge_server_destroy(lbridge_server_t p_server)
 	}
 
 	// Close the listening socket
-	if (p_server->base.backend != NULL && p_server->backend_data != NULL)
+	if (p_server->base.backend != NULL && p_server->base.backend_data != NULL)
 	{
 		p_server->base.backend(LBRIDGE_OP_SERVER_CLEANUP, p_server, NULL);
 	}
@@ -1141,6 +1195,31 @@ bool LBRIDGE_API lbridge_server_listen_bluetooth(lbridge_server_t p_server, uint
 }
 
 #endif // LBRIDGE_ENABLE_BLUETOOTH_SERVER
+
+bool LBRIDGE_API lbridge_server_listen_custom(lbridge_server_t p_server, lbridge_custom_backend_fn backend, void* user_data, void* listen_arg, uint32_t max_nb_clients)
+{
+	if (p_server == NULL || backend == NULL || max_nb_clients == 0)
+	{
+		return false;
+	}
+	__lbridge_object_set_error(p_server, LBRIDGE_ERROR_NONE);
+
+	if (!__lbridge_server_allocate_connections(p_server, max_nb_clients))
+	{
+		return false;
+	}
+
+	p_server->base.type = LBRIDGE_TYPE_CUSTOM;
+	p_server->base.backend = backend;
+	p_server->base.backend_data = user_data;
+	const bool opened = p_server->base.backend(LBRIDGE_OP_SERVER_OPEN, p_server, listen_arg);
+	if (!opened)
+	{
+		__lbridge_server_free_connections(p_server);
+		return false;
+	}
+	return true;
+}
 
 void __lbridge_server_remove_connection(lbridge_server_t p_server, uint32_t index, enum lbridge_protocol_error error)
 {

@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdbool.h>
 #include "../lbridge.h"
+#include "../lbridge_custom_backend.h"
 #if defined(LBRIDGE_ENABLE_SECURE)
 #include "../mbedtls-chachapoly/mbedtls/chachapoly.h"
 #endif // LBRIDGE_ENABLE_SECURE
@@ -24,45 +25,10 @@ extern "C" {
 
 #define LBRIDGE_UNUSED(x) (void)(x)
 
-enum lbridge_backend_operation
-{
-	LBRIDGE_OP_NONE = 0,
-	LBRIDGE_OP_CLIENT_CONNECT,
-	LBRIDGE_OP_CLIENT_CLEANUP,
-	LBRIDGE_OP_SERVER_OPEN,
-	LBRIDGE_OP_SERVER_CLEANUP,
-	LBRIDGE_OP_SERVER_ACCEPT,
-	LBRIDGE_OP_SEND_DATA,
-	LBRIDGE_OP_RECEIVE_DATA,
-	LBRIDGE_OP_CONNECTION_CLOSE,
-};
-
-enum lbridge_receive_flag
-{
-	LBRIDGE_RECEIVE_BLOCKING = 0x01,
-};
-
-struct lbridge_object_send_data
-{
-	struct lbridge_connection*		connection;
-	const uint8_t*					data;
-	uint32_t						size;
-};
-
-struct lbridge_object_receive_data
-{
-	struct lbridge_connection*	connection;
-	uint8_t*					data;
-	uint32_t					requested_size;
-	uint32_t					received_size;
-	enum lbridge_receive_flag 	flags;
-};
-
-struct lbridge_server_accept_data
-{
-	struct lbridge_connection* new_connection;
-	bool new_client_accepted;
-};
+// Aliases for internal code compatibility (use shared structures from lbridge_custom_backend.h)
+#define lbridge_object_send_data    lbridge_backend_send_data
+#define lbridge_object_receive_data lbridge_backend_receive_data
+#define lbridge_server_accept_data  lbridge_backend_accept_data
 
 typedef uint32_t lbridge_frame_header_t;
 
@@ -136,7 +102,8 @@ enum lbridge_object_type
 	LBRIDGE_SERVER = 1,
 };
 
-typedef bool(*fp_backend)(enum lbridge_backend_operation op, lbridge_object_t p_object, void* arg);
+// Use lbridge_backend_fn from lbridge_custom_backend.h (shared between internal and custom backends)
+typedef lbridge_backend_fn fp_backend;
 
 struct lbridge_context
 {
@@ -147,13 +114,14 @@ struct lbridge_object
 {
 	struct lbridge_context*		context;
 	fp_backend					backend;
+	void*						backend_data; // backend-specific data (socket handle, user data, etc.)
 #if defined(LBRIDGE_ENABLE_SECURE)
 	const uint8_t*				encryption_key_256bits;
 #endif // LBRIDGE_ENABLE_SECURE
 	enum lbridge_error_code		last_error;
 	enum lbridge_type			type;
 	int32_t 					timeout_ms;
-	uint32_t					max_payload_size;	
+	uint32_t					max_payload_size;
 	uint16_t					max_frame_payload_size;
 	uint8_t						sequence_max_nb_frames; // max number of frames in a sequence (for fragmentation)
 	uint8_t 					object_type;
@@ -169,7 +137,6 @@ struct lbridge_server
 {
 	struct lbridge_object					base;
 	struct lbridge_connection_async_vector	connections;
-	void*									backend_data;
 	fp_rpc_call								rpc_call;
 	uint32_t								client_timeout_ms; // client inactivity timeout (0 = disabled)
 };

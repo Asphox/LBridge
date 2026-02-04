@@ -71,6 +71,7 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "lbridge_custom_backend.h"
 
 /**
  * @brief Error codes returned by LBridge functions.
@@ -136,7 +137,8 @@ enum lbridge_type
 	LBRIDGE_TYPE_TCP,         /**< TCP/IP socket transport. */
 	LBRIDGE_TYPE_UNIX,        /**< Unix domain socket transport. */
 	LBRIDGE_TYPE_BLUETOOTH,   /**< Bluetooth RFCOMM transport. */
-	LBRIDGE_TYPE_SERIAL       /**< Serial port transport (not yet implemented). */
+	LBRIDGE_TYPE_SERIAL,      /**< Serial port transport (not yet implemented). */
+	LBRIDGE_TYPE_CUSTOM       /**< Custom user-provided transport backend. */
 };
 
 /**
@@ -200,6 +202,25 @@ void LBRIDGE_API lbridge_context_destroy(lbridge_context_t context);
  * lbridge_get_last_error(), lbridge_set_timeout(), and lbridge_activate_encryption().
  */
 typedef void* lbridge_object_t;
+
+/**
+ * @brief Gets the backend data stored in an object (client or server).
+ *
+ * Custom backends use this to retrieve their user-provided context
+ * passed to lbridge_client_connect_custom() or lbridge_server_listen_custom().
+ *
+ * @param object The LBridge object (client or server).
+ * @return The backend data pointer, or NULL if not set.
+ */
+void* LBRIDGE_API lbridge_get_backend_data(lbridge_object_t object);
+
+/**
+ * @brief Sets the backend data in an object (client or server).
+ *
+ * @param object The LBridge object (client or server).
+ * @param data   The backend data pointer to store.
+ */
+void LBRIDGE_API lbridge_set_backend_data(lbridge_object_t object, void* data);
 
 /**
  * @brief Opaque handle to an RPC context.
@@ -408,6 +429,27 @@ bool LBRIDGE_API lbridge_client_connect_unix(lbridge_client_t client, const char
 bool LBRIDGE_API lbridge_client_connect_bluetooth(lbridge_client_t client, const char* address, uint8_t channel);
 #endif
 
+/**
+ * @brief Connects a client using a custom transport backend.
+ *
+ * This function allows using a user-provided transport implementation
+ * (e.g., SPI, UART, I2C) with the LBridge protocol.
+ *
+ * @param client      The client to connect.
+ * @param backend     The custom backend callback function.
+ * @param user_data   User-provided context passed to all backend callbacks.
+ * @param connect_arg Optional argument passed to the LBRIDGE_OP_CLIENT_CONNECT operation.
+ *
+ * @return true if the connection was established successfully, false otherwise.
+ *
+ * @note The backend callback will be invoked for all transport operations.
+ * @note For transports without a connection concept (e.g., SPI), the backend
+ *       can simply return true for LBRIDGE_OP_CLIENT_CONNECT.
+ *
+ * @see lbridge_custom_backend.h for backend implementation details.
+ */
+bool LBRIDGE_API lbridge_client_connect_custom(lbridge_client_t client, lbridge_custom_backend_fn backend, void* user_data, void* connect_arg);
+
 #endif // LBRIDGE_ENABLE_CLIENT
 
 #if defined(LBRIDGE_ENABLE_SERVER)
@@ -518,6 +560,28 @@ bool LBRIDGE_API lbridge_server_listen_unix(lbridge_server_t server, const char*
  */
 bool LBRIDGE_API lbridge_server_listen_bluetooth(lbridge_server_t server, uint8_t channel, uint32_t max_nb_clients);
 #endif // LBRIDGE_ENABLE_BLUETOOTH_SERVER
+
+/**
+ * @brief Starts the server using a custom transport backend.
+ *
+ * This function allows using a user-provided transport implementation
+ * (e.g., SPI, UART, I2C) with the LBridge protocol.
+ *
+ * @param server        The server to start.
+ * @param backend       The custom backend callback function.
+ * @param user_data     User-provided context passed to all backend callbacks.
+ * @param listen_arg    Optional argument passed to the LBRIDGE_OP_SERVER_OPEN operation.
+ * @param max_nb_clients Maximum number of simultaneous client connections.
+ *
+ * @return true if the server started successfully, false otherwise.
+ *
+ * @note The backend callback will be invoked for all transport operations.
+ * @note For single-client transports (e.g., SPI), set max_nb_clients to 1 and
+ *       return new_client_accepted=true in LBRIDGE_OP_SERVER_ACCEPT when ready.
+ *
+ * @see lbridge_custom_backend.h for backend implementation details.
+ */
+bool LBRIDGE_API lbridge_server_listen_custom(lbridge_server_t server, lbridge_custom_backend_fn backend, void* user_data, void* listen_arg, uint32_t max_nb_clients);
 
 #endif // LBRIDGE_ENABLE_SERVER
 

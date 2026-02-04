@@ -2078,3 +2078,473 @@ TEST_CASE("Unix socket RPC call - with encryption")
 #endif // LBRIDGE_ENABLE_SECURE
 
 #endif // LBRIDGE_ENABLE_UNIX_CLIENT && LBRIDGE_ENABLE_UNIX_SERVER
+
+// =============================================================================
+// Custom Backend Tests (FIFO-based in-memory transport)
+// =============================================================================
+
+#include <queue>
+#include <deque>
+
+// Thread-safe FIFO for inter-thread communication
+class ThreadSafeFifo
+{
+public:
+    void push(uint8_t byte)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_data.push_back(byte);
+    }
+
+    void push(const uint8_t* data, size_t size)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (size_t i = 0; i < size; i++)
+        {
+            m_data.push_back(data[i]);
+        }
+    }
+
+    size_t pop(uint8_t* buffer, size_t max_size)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        size_t count = 0;
+        while (count < max_size && !m_data.empty())
+        {
+            buffer[count++] = m_data.front();
+            m_data.pop_front();
+        }
+        return count;
+    }
+
+    size_t available() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_data.size();
+    }
+
+    void clear()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_data.clear();
+    }
+
+private:
+    std::deque<uint8_t> m_data;
+    mutable std::mutex m_mutex;
+};
+
+// Bidirectional FIFO channel (two FIFOs for full-duplex communication)
+struct FifoChannel
+{
+    ThreadSafeFifo client_to_server;  // Client writes, Server reads
+    ThreadSafeFifo server_to_client;  // Server writes, Client reads
+};
+
+// Custom backend context
+struct FifoBackendContext
+{
+    FifoChannel* channel;
+    bool is_server;
+};
+
+// Custom FIFO backend implementation
+bool fifo_backend(enum lbridge_backend_operation op, void* object, void* arg)
+{
+    FifoBackendContext* ctx = (FifoBackendContext*)lbridge_get_backend_data(object);
+
+    switch (op)
+    {
+    case LBRIDGE_OP_CLIENT_CONNECT:
+    case LBRIDGE_OP_SERVER_OPEN:
+        // Nothing to do - channel is already set up
+        return true;
+
+    case LBRIDGE_OP_CLIENT_CLEANUP:
+    case LBRIDGE_OP_SERVER_CLEANUP:
+        return true;
+
+    case LBRIDGE_OP_SERVER_ACCEPT: {
+        struct lbridge_backend_accept_data* d = (struct lbridge_backend_accept_data*)arg;
+        // For FIFO transport, we simulate a single always-connected client
+        // Check if there's data waiting (indicates client is "connected")
+        if (ctx->channel->client_to_server.available() > 0)
+        {
+            d->new_client_accepted = true;
+        }
+        else
+        {
+            d->new_client_accepted = false;
+        }
+        return true;
+    }
+
+    case LBRIDGE_OP_SEND_DATA: {
+        struct lbridge_backend_send_data* d = (struct lbridge_backend_send_data*)arg;
+        if (ctx->is_server)
+        {
+            ctx->channel->server_to_client.push(d->data, d->size);
+        }
+        else
+        {
+            ctx->channel->client_to_server.push(d->data, d->size);
+        }
+        return true;
+    }
+
+    case LBRIDGE_OP_RECEIVE_DATA: {
+        struct lbridge_backend_receive_data* d = (struct lbridge_backend_receive_data*)arg;
+        ThreadSafeFifo* fifo = ctx->is_server
+            ? &ctx->channel->client_to_server
+            : &ctx->channel->server_to_client;
+
+        // Non-blocking: return what's available
+        if (!(d->flags & LBRIDGE_RECEIVE_BLOCKING))
+        {
+            d->received_size = (uint32_t)fifo->pop(d->data, d->requested_size);
+            return true;
+        }
+
+        // Blocking: wait for data with timeout
+        auto start = std::chrono::steady_clock::now();
+        const int32_t timeout_ms = 5000; // 5 second timeout for tests
+        d->received_size = 0;
+
+        while (d->received_size < d->requested_size)
+        {
+            size_t got = fifo->pop(d->data + d->received_size, d->requested_size - d->received_size);
+            d->received_size += (uint32_t)got;
+
+            if (d->received_size >= d->requested_size)
+                break;
+
+            // Check timeout
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start).count();
+            if (elapsed > timeout_ms)
+            {
+                return false; // Timeout
+            }
+
+            // Small sleep to avoid busy-waiting
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+        return true;
+    }
+
+    case LBRIDGE_OP_CONNECTION_CLOSE:
+        return true;
+
+    default:
+        return true;
+    }
+}
+
+TEST_CASE("Custom backend - FIFO client-server handshake")
+{
+    FifoChannel channel;
+
+    // Server setup
+    FifoBackendContext server_ctx_data = { &channel, true };
+    struct lbridge_context_params server_params = { 0 };
+#if defined(LBRIDGE_ENABLE_SECURE)
+    server_params.fp_generate_nonce = test_generate_nonce;
+#endif
+    server_params.fp_get_time_ms = get_time_ms_impl;
+    lbridge_context_t server_ctx = lbridge_context_create(&server_params);
+    REQUIRE(server_ctx != nullptr);
+
+    lbridge_server_t server = lbridge_server_create(server_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, echo_rpc_callback);
+    REQUIRE(server != nullptr);
+
+    lbridge_set_backend_data(server, &server_ctx_data);
+    bool server_started = lbridge_server_listen_custom(server, fifo_backend, &server_ctx_data, nullptr, 1);
+    REQUIRE(server_started);
+
+    // Client setup
+    FifoBackendContext client_ctx_data = { &channel, false };
+    TestContext client_ctx;
+    lbridge_client_t client = lbridge_client_create(client_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+
+    lbridge_set_backend_data(client, &client_ctx_data);
+
+    // Run server in background thread
+    std::atomic<bool> server_running{ true };
+    std::thread server_thread([&]() {
+        while (server_running)
+        {
+            lbridge_server_update(server);
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+    });
+
+    // Client connects
+    bool connected = lbridge_client_connect_custom(client, fifo_backend, &client_ctx_data, nullptr);
+    CHECK(connected);
+    CHECK(lbridge_client_get_type(client) == LBRIDGE_TYPE_CUSTOM);
+
+    // Cleanup
+    lbridge_client_destroy(client);
+    server_running = false;
+    server_thread.join();
+    lbridge_server_destroy(server);
+    lbridge_context_destroy(server_ctx);
+}
+
+TEST_CASE("Custom backend - FIFO RPC echo")
+{
+    FifoChannel channel;
+
+    // Server setup
+    FifoBackendContext server_ctx_data = { &channel, true };
+    struct lbridge_context_params server_params = { 0 };
+#if defined(LBRIDGE_ENABLE_SECURE)
+    server_params.fp_generate_nonce = test_generate_nonce;
+#endif
+    server_params.fp_get_time_ms = get_time_ms_impl;
+    lbridge_context_t server_ctx = lbridge_context_create(&server_params);
+    REQUIRE(server_ctx != nullptr);
+
+    lbridge_server_t server = lbridge_server_create(server_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, echo_rpc_callback);
+    REQUIRE(server != nullptr);
+
+    lbridge_set_backend_data(server, &server_ctx_data);
+    REQUIRE(lbridge_server_listen_custom(server, fifo_backend, &server_ctx_data, nullptr, 1));
+
+    // Client setup
+    FifoBackendContext client_ctx_data = { &channel, false };
+    TestContext client_ctx;
+    lbridge_client_t client = lbridge_client_create(client_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+
+    lbridge_set_backend_data(client, &client_ctx_data);
+
+    // Server thread
+    std::atomic<bool> server_running{ true };
+    std::thread server_thread([&]() {
+        while (server_running)
+        {
+            lbridge_server_update(server);
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+    });
+
+    // Connect and call RPC
+    REQUIRE(lbridge_client_connect_custom(client, fifo_backend, &client_ctx_data, nullptr));
+
+    uint8_t buffer[256];
+    const char* test_message = "Hello via FIFO custom backend!";
+    size_t msg_len = strlen(test_message) + 1;
+    memcpy(buffer, test_message, msg_len);
+    uint32_t size = (uint32_t)msg_len;
+
+    bool success = lbridge_client_call_rpc(client, RPC_ECHO, buffer, &size, sizeof(buffer));
+    CHECK(success);
+    CHECK(size == msg_len);
+    CHECK(strcmp((const char*)buffer, test_message) == 0);
+
+    // Cleanup
+    lbridge_client_destroy(client);
+    server_running = false;
+    server_thread.join();
+    lbridge_server_destroy(server);
+    lbridge_context_destroy(server_ctx);
+}
+
+TEST_CASE("Custom backend - FIFO multiple RPC calls")
+{
+    FifoChannel channel;
+
+    // Server setup
+    FifoBackendContext server_ctx_data = { &channel, true };
+    struct lbridge_context_params server_params = { 0 };
+#if defined(LBRIDGE_ENABLE_SECURE)
+    server_params.fp_generate_nonce = test_generate_nonce;
+#endif
+    server_params.fp_get_time_ms = get_time_ms_impl;
+    lbridge_context_t server_ctx = lbridge_context_create(&server_params);
+    REQUIRE(server_ctx != nullptr);
+
+    lbridge_server_t server = lbridge_server_create(server_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, echo_rpc_callback);
+    REQUIRE(server != nullptr);
+
+    lbridge_set_backend_data(server, &server_ctx_data);
+    REQUIRE(lbridge_server_listen_custom(server, fifo_backend, &server_ctx_data, nullptr, 1));
+
+    // Client setup
+    FifoBackendContext client_ctx_data = { &channel, false };
+    TestContext client_ctx;
+    lbridge_client_t client = lbridge_client_create(client_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+
+    lbridge_set_backend_data(client, &client_ctx_data);
+
+    // Server thread
+    std::atomic<bool> server_running{ true };
+    std::thread server_thread([&]() {
+        while (server_running)
+        {
+            lbridge_server_update(server);
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+    });
+
+    REQUIRE(lbridge_client_connect_custom(client, fifo_backend, &client_ctx_data, nullptr));
+
+    // Multiple RPC calls
+    for (int i = 0; i < 10; i++)
+    {
+        uint8_t buffer[256];
+        uint32_t value = i * 100 + 42;
+        memcpy(buffer, &value, 4);
+        uint32_t size = 4;
+
+        bool success = lbridge_client_call_rpc(client, RPC_ECHO, buffer, &size, sizeof(buffer));
+        CHECK(success);
+        CHECK(size == 4);
+
+        uint32_t result;
+        memcpy(&result, buffer, 4);
+        CHECK(result == value);
+    }
+
+    // Cleanup
+    lbridge_client_destroy(client);
+    server_running = false;
+    server_thread.join();
+    lbridge_server_destroy(server);
+    lbridge_context_destroy(server_ctx);
+}
+
+TEST_CASE("Custom backend - FIFO large data (fragmentation)")
+{
+    FifoChannel channel;
+
+    // Server setup
+    FifoBackendContext server_ctx_data = { &channel, true };
+    struct lbridge_context_params server_params = { 0 };
+#if defined(LBRIDGE_ENABLE_SECURE)
+    server_params.fp_generate_nonce = test_generate_nonce;
+#endif
+    server_params.fp_get_time_ms = get_time_ms_impl;
+    lbridge_context_t server_ctx = lbridge_context_create(&server_params);
+    REQUIRE(server_ctx != nullptr);
+
+    lbridge_server_t server = lbridge_server_create(server_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, echo_rpc_callback);
+    REQUIRE(server != nullptr);
+
+    lbridge_set_backend_data(server, &server_ctx_data);
+    REQUIRE(lbridge_server_listen_custom(server, fifo_backend, &server_ctx_data, nullptr, 1));
+
+    // Client setup
+    FifoBackendContext client_ctx_data = { &channel, false };
+    TestContext client_ctx;
+    lbridge_client_t client = lbridge_client_create(client_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+
+    lbridge_set_backend_data(client, &client_ctx_data);
+
+    // Server thread
+    std::atomic<bool> server_running{ true };
+    std::thread server_thread([&]() {
+        while (server_running)
+        {
+            lbridge_server_update(server);
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+    });
+
+    REQUIRE(lbridge_client_connect_custom(client, fifo_backend, &client_ctx_data, nullptr));
+
+    // Create large data to trigger fragmentation
+    std::vector<uint8_t> large_data(MAX_FRAME_PAYLOAD * 3);
+    for (size_t i = 0; i < large_data.size(); i++)
+    {
+        large_data[i] = (uint8_t)(i & 0xFF);
+    }
+
+    std::vector<uint8_t> buffer(large_data.size() + 1024);
+    memcpy(buffer.data(), large_data.data(), large_data.size());
+    uint32_t size = (uint32_t)large_data.size();
+
+    bool success = lbridge_client_call_rpc(client, RPC_LARGE_DATA, buffer.data(), &size, (uint32_t)buffer.size());
+    CHECK(success);
+    CHECK(size == large_data.size());
+    CHECK(memcmp(buffer.data(), large_data.data(), large_data.size()) == 0);
+
+    // Cleanup
+    lbridge_client_destroy(client);
+    server_running = false;
+    server_thread.join();
+    lbridge_server_destroy(server);
+    lbridge_context_destroy(server_ctx);
+}
+
+#if defined(LBRIDGE_ENABLE_SECURE)
+TEST_CASE("Custom backend - FIFO with encryption")
+{
+    FifoChannel channel;
+
+    static const uint8_t test_key[32] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F
+    };
+
+    // Server setup
+    FifoBackendContext server_ctx_data = { &channel, true };
+    struct lbridge_context_params server_params = { 0 };
+    server_params.fp_generate_nonce = test_generate_nonce;
+    server_params.fp_get_time_ms = get_time_ms_impl;
+    lbridge_context_t server_ctx = lbridge_context_create(&server_params);
+    REQUIRE(server_ctx != nullptr);
+
+    lbridge_server_t server = lbridge_server_create(server_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, echo_rpc_callback);
+    REQUIRE(server != nullptr);
+
+    lbridge_activate_encryption(server, test_key);
+    lbridge_set_backend_data(server, &server_ctx_data);
+    REQUIRE(lbridge_server_listen_custom(server, fifo_backend, &server_ctx_data, nullptr, 1));
+
+    // Client setup
+    FifoBackendContext client_ctx_data = { &channel, false };
+    TestContext client_ctx;
+    lbridge_client_t client = lbridge_client_create(client_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+
+    lbridge_activate_encryption(client, test_key);
+    lbridge_set_backend_data(client, &client_ctx_data);
+
+    // Server thread
+    std::atomic<bool> server_running{ true };
+    std::thread server_thread([&]() {
+        while (server_running)
+        {
+            lbridge_server_update(server);
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+    });
+
+    REQUIRE(lbridge_client_connect_custom(client, fifo_backend, &client_ctx_data, nullptr));
+
+    uint8_t buffer[256];
+    const char* test_message = "Encrypted FIFO message!";
+    size_t msg_len = strlen(test_message) + 1;
+    memcpy(buffer, test_message, msg_len);
+    uint32_t size = (uint32_t)msg_len;
+
+    bool success = lbridge_client_call_rpc(client, RPC_ECHO, buffer, &size, sizeof(buffer));
+    CHECK(success);
+    CHECK(size == msg_len);
+    CHECK(strcmp((const char*)buffer, test_message) == 0);
+
+    // Cleanup
+    lbridge_client_destroy(client);
+    server_running = false;
+    server_thread.join();
+    lbridge_server_destroy(server);
+    lbridge_context_destroy(server_ctx);
+}
+#endif // LBRIDGE_ENABLE_SECURE

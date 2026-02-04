@@ -219,16 +219,16 @@ bool lbridge_tcp_server_impl_open(struct lbridge_server* p_server, void* arg)
 		return false;
 	}
 
-	p_server->backend_data = SOCKET_TO_PTR(s);
+	p_server->base.backend_data = SOCKET_TO_PTR(s);
 	return true;
 }
 bool lbridge_tcp_server_impl_cleanup(struct lbridge_server* p_server)
 {
-	socket_t s = PTR_TO_SOCKET(p_server->backend_data);
+	socket_t s = PTR_TO_SOCKET(p_server->base.backend_data);
 	if (IS_VALID_SOCKET(s))
 	{
 		CLOSE_SOCKET(s);
-		p_server->backend_data = NULL;
+		p_server->base.backend_data = NULL;
 	}
 	return true;
 }
@@ -237,7 +237,7 @@ bool lbridge_tcp_server_impl_accept(struct lbridge_server* p_server, void* arg)
 {
 	struct lbridge_server_accept_data* accept_data = (struct lbridge_server_accept_data*)arg;
 	accept_data->new_client_accepted = false;
-	socket_t server_socket = PTR_TO_SOCKET(p_server->backend_data);
+	socket_t server_socket = PTR_TO_SOCKET(p_server->base.backend_data);
 	if (!IS_VALID_SOCKET(server_socket))
 	{
 		p_server->base.last_error = LBRIDGE_ERROR_NOT_CONNECTED;
@@ -599,17 +599,17 @@ bool lbridge_unix_server_impl_open(struct lbridge_server* p_server, void* arg)
 		return false;
 	}
 
-	p_server->backend_data = SOCKET_TO_PTR(s);
+	p_server->base.backend_data = SOCKET_TO_PTR(s);
 	return true;
 }
 
 bool lbridge_unix_server_impl_cleanup(struct lbridge_server* p_server)
 {
-	socket_t s = PTR_TO_SOCKET(p_server->backend_data);
+	socket_t s = PTR_TO_SOCKET(p_server->base.backend_data);
 	if (IS_VALID_SOCKET(s))
 	{
 		CLOSE_SOCKET(s);
-		p_server->backend_data = NULL;
+		p_server->base.backend_data = NULL;
 	}
 	return true;
 }
@@ -618,7 +618,7 @@ bool lbridge_unix_server_impl_accept(struct lbridge_server* p_server, void* arg)
 {
 	struct lbridge_server_accept_data* accept_data = (struct lbridge_server_accept_data*)arg;
 	accept_data->new_client_accepted = false;
-	socket_t server_socket = PTR_TO_SOCKET(p_server->backend_data);
+	socket_t server_socket = PTR_TO_SOCKET(p_server->base.backend_data);
 	if (!IS_VALID_SOCKET(server_socket))
 	{
 		p_server->base.last_error = LBRIDGE_ERROR_NOT_CONNECTED;

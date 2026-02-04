@@ -9,6 +9,8 @@
 
 **LBridge** is a lightweight, cross-platform RPC (Remote Procedure Call) library written in C, designed for embedded systems, IoT devices, and inter-process communication.
 
+The protocol is **transport-agnostic** (works over TCP, Unix sockets, Bluetooth, SPI, UART, or any custom transport) and **data-agnostic** (transfers raw binary payloads without interpretation).
+
 ## Transport Status
 
 | Transport | Windows | Linux | macOS | Status |
@@ -16,6 +18,7 @@
 | TCP Socket | :white_check_mark: | :white_check_mark: | :white_check_mark: | Done |
 | Unix Socket | :white_check_mark: | :white_check_mark: | :white_check_mark: | Done |
 | Bluetooth RFCOMM | :white_check_mark:* | :white_check_mark:* | | Done |
+| Custom Backend | :white_check_mark: | :white_check_mark: | :white_check_mark: | Done |
 | BLE | :clipboard: | :clipboard: | | Planned |
 | Serial | :clipboard: | :clipboard: | :clipboard: | Planned |
 | Shared Memory | :clipboard: | :clipboard: | :clipboard: | Planned |
@@ -27,6 +30,7 @@
 - **Minimal footprint** - Small memory and code size
 - **Cross-platform** - Windows (WinSock2) and Unix (POSIX sockets)
 - **Multiple transports** - TCP/IP, Unix domain sockets, and Bluetooth RFCOMM
+- **Custom backends** - Bring your own transport (SPI, UART, I2C, etc.)
 - **Optional encryption** - ChaCha20-Poly1305 AEAD cipher
 - **Message fragmentation** - Large payloads split across multiple frames
 - **Custom allocators** - Bring your own malloc/free
@@ -37,6 +41,7 @@
 
 - [Building](#building)
 - [Quick Start](#quick-start)
+- [Custom Backend](#custom-backend)
 - [API Reference](#api-reference)
 - [Protocol Specification](#protocol-specification)
   - [Frame Format](#frame-format)
@@ -285,6 +290,221 @@ int main()
 
 ---
 
+## Custom Backend
+
+The LBridge protocol is **transport-agnostic** and transfers **binary data**. It doesn't care how bytes are sent or received - only that they arrive in order. This makes it easy to implement custom backends for any communication interface (SPI, UART, I2C, CAN, etc.).
+
+This is particularly useful for embedded systems where standard sockets are not available.
+
+### Backend Callback
+
+A custom backend is a callback function that handles transport operations. The callback receives an operation code, the LBridge object (client or server), and operation-specific arguments.
+
+```c
+#include "lbridge.h"
+#include "lbridge_custom_backend.h"
+
+bool my_backend(enum lbridge_backend_operation op, void* object, void* arg)
+{
+    // Retrieve user data if needed
+    void* user_data = lbridge_get_backend_data(object);
+
+    switch (op)
+    {
+    case LBRIDGE_OP_CLIENT_CONNECT:
+        // Initialize transport (arg = user-provided connect_arg)
+        return true;
+
+    case LBRIDGE_OP_CLIENT_CLEANUP:
+        // Cleanup transport resources
+        return true;
+
+    case LBRIDGE_OP_SEND_DATA: {
+        struct lbridge_backend_send_data* d = arg;
+        // Send d->size bytes from d->data
+        // For per-connection handle: void* handle = lbridge_connection_get_handle(d->connection);
+        my_transport_write(d->data, d->size);
+        return true;
+    }
+
+    case LBRIDGE_OP_RECEIVE_DATA: {
+        struct lbridge_backend_receive_data* d = arg;
+        // Receive up to d->requested_size bytes into d->data
+        // Set d->received_size to actual bytes received
+        // Return true with received_size=0 if no data available (non-blocking)
+        d->received_size = my_transport_read(d->data, d->requested_size);
+        return true;
+    }
+
+    case LBRIDGE_OP_SERVER_OPEN:
+        // Initialize server (arg = user-provided listen_arg)
+        return true;
+
+    case LBRIDGE_OP_SERVER_CLEANUP:
+        // Cleanup server resources
+        return true;
+
+    case LBRIDGE_OP_SERVER_ACCEPT: {
+        struct lbridge_backend_accept_data* d = arg;
+        // Check if a new client is waiting
+        // Set d->new_client_accepted = true if accepted
+        // Optionally store handle: lbridge_connection_set_handle(d->new_connection, my_handle);
+        d->new_client_accepted = is_client_waiting();
+        return true;
+    }
+
+    case LBRIDGE_OP_CONNECTION_CLOSE: {
+        struct lbridge_connection* conn = arg;
+        // Close the connection
+        // void* handle = lbridge_connection_get_handle(conn);
+        return true;
+    }
+
+    default:
+        return true;  // Unknown operations = success
+    }
+}
+```
+
+### Backend Operations
+
+| Operation | Object | Argument | Description |
+|-----------|--------|----------|-------------|
+| `LBRIDGE_OP_CLIENT_CONNECT` | Client | `void*` (connect_arg) | Establish connection |
+| `LBRIDGE_OP_CLIENT_CLEANUP` | Client | `NULL` | Cleanup client resources |
+| `LBRIDGE_OP_SERVER_OPEN` | Server | `void*` (listen_arg) | Start listening |
+| `LBRIDGE_OP_SERVER_CLEANUP` | Server | `NULL` | Cleanup server resources |
+| `LBRIDGE_OP_SERVER_ACCEPT` | Server | `lbridge_backend_accept_data*` | Accept new client |
+| `LBRIDGE_OP_SEND_DATA` | Both | `lbridge_backend_send_data*` | Send data |
+| `LBRIDGE_OP_RECEIVE_DATA` | Both | `lbridge_backend_receive_data*` | Receive data |
+| `LBRIDGE_OP_CONNECTION_CLOSE` | Both | `lbridge_connection*` | Close connection |
+
+### Example: SPI Backend (Arduino)
+
+```c
+#include "lbridge.h"
+#include "lbridge_custom_backend.h"
+#include <SPI.h>
+
+bool spi_backend(enum lbridge_backend_operation op, void* object, void* arg)
+{
+    switch (op)
+    {
+    case LBRIDGE_OP_CLIENT_CONNECT:
+        SPI.begin();
+        return true;
+
+    case LBRIDGE_OP_CLIENT_CLEANUP:
+        SPI.end();
+        return true;
+
+    case LBRIDGE_OP_SEND_DATA: {
+        struct lbridge_backend_send_data* d = arg;
+        SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+        for (uint32_t i = 0; i < d->size; i++) {
+            SPI.transfer(d->data[i]);
+        }
+        SPI.endTransaction();
+        return true;
+    }
+
+    case LBRIDGE_OP_RECEIVE_DATA: {
+        struct lbridge_backend_receive_data* d = arg;
+        d->received_size = 0;
+        SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+        while (d->received_size < d->requested_size) {
+            d->data[d->received_size++] = SPI.transfer(0x00);
+        }
+        SPI.endTransaction();
+        return true;
+    }
+
+    default:
+        return true;
+    }
+}
+
+void setup()
+{
+    lbridge_context_t ctx = lbridge_context_create(&params);
+    lbridge_client_t client = lbridge_client_create(ctx, 256, 1024);
+
+    // Connect using custom SPI backend
+    lbridge_client_connect_custom(client, spi_backend, NULL, NULL);
+
+    // Now use client normally
+    uint8_t buffer[64] = { 0x01, 0x02 };
+    uint32_t size = 2;
+    lbridge_client_call_rpc(client, 0x100, buffer, &size, sizeof(buffer));
+}
+```
+
+### Custom Backend Server
+
+```c
+bool my_server_backend(enum lbridge_backend_operation op, void* object, void* arg)
+{
+    switch (op)
+    {
+    case LBRIDGE_OP_SERVER_OPEN:
+        // Initialize server transport
+        return true;
+
+    case LBRIDGE_OP_SERVER_ACCEPT: {
+        struct lbridge_backend_accept_data* d = arg;
+        if (is_new_client_available()) {
+            // Store per-client handle if needed
+            void* client_handle = get_new_client_handle();
+            lbridge_connection_set_handle(d->new_connection, client_handle);
+            d->new_client_accepted = true;
+        } else {
+            d->new_client_accepted = false;
+        }
+        return true;
+    }
+
+    case LBRIDGE_OP_SEND_DATA: {
+        struct lbridge_backend_send_data* d = arg;
+        void* client_handle = lbridge_connection_get_handle(d->connection);
+        send_to_client(client_handle, d->data, d->size);
+        return true;
+    }
+
+    case LBRIDGE_OP_RECEIVE_DATA: {
+        struct lbridge_backend_receive_data* d = arg;
+        void* client_handle = lbridge_connection_get_handle(d->connection);
+        d->received_size = receive_from_client(client_handle, d->data, d->requested_size);
+        return true;
+    }
+
+    case LBRIDGE_OP_CONNECTION_CLOSE: {
+        struct lbridge_connection* conn = arg;
+        void* client_handle = lbridge_connection_get_handle(conn);
+        close_client(client_handle);
+        return true;
+    }
+
+    default:
+        return true;
+    }
+}
+
+int main()
+{
+    lbridge_context_t ctx = lbridge_context_create(&params);
+    lbridge_server_t server = lbridge_server_create(ctx, 256, 4096, on_rpc_call);
+
+    // Start server with custom backend (max 5 clients)
+    lbridge_server_listen_custom(server, my_server_backend, NULL, NULL, 5);
+
+    while (1) {
+        lbridge_server_update(server);
+    }
+}
+```
+
+---
+
 ## API Reference
 
 ### Context
@@ -302,6 +522,7 @@ void lbridge_client_destroy(lbridge_client_t client);
 bool lbridge_client_connect_tcp(lbridge_client_t client, const char* host, uint16_t port);
 bool lbridge_client_connect_unix(lbridge_client_t client, const char* socket_path);
 bool lbridge_client_connect_bluetooth(lbridge_client_t client, const char* address, uint8_t channel);
+bool lbridge_client_connect_custom(lbridge_client_t client, lbridge_custom_backend_fn backend, void* user_data, void* connect_arg);
 bool lbridge_client_call_rpc(lbridge_client_t client, uint16_t rpc_id, uint8_t* inout_data, uint32_t* inout_size, uint32_t max_out_size);
 bool lbridge_client_ping(lbridge_client_t client);
 ```
@@ -309,6 +530,8 @@ bool lbridge_client_ping(lbridge_client_t client);
 > **Note:** `lbridge_client_connect_unix()` connects via Unix domain socket. On Windows, Unix domain sockets are supported since Windows 10 version 1803.
 
 > **Note:** `lbridge_client_connect_bluetooth()` connects via Bluetooth RFCOMM. The `address` parameter is the Bluetooth MAC address in format `"XX:XX:XX:XX:XX:XX"`. The `channel` parameter is the RFCOMM channel number (1-30). On Windows, requires the Windows Bluetooth stack. On Linux, requires BlueZ.
+
+> **Note:** `lbridge_client_connect_custom()` connects using a user-provided transport backend. See [Custom Backend](#custom-backend) for implementation details.
 
 > **Note:** `lbridge_client_ping()` sends a lightweight keep-alive command to the server to refresh the inactivity timeout. Useful when the server has client timeout enabled and the client needs to stay connected without sending actual RPCs.
 
@@ -320,6 +543,7 @@ void lbridge_server_destroy(lbridge_server_t server);
 bool lbridge_server_listen_tcp(lbridge_server_t server, const char* address, uint16_t port, uint32_t max_clients);
 bool lbridge_server_listen_unix(lbridge_server_t server, const char* socket_path, uint32_t max_clients);
 bool lbridge_server_listen_bluetooth(lbridge_server_t server, uint8_t channel, uint32_t max_clients);
+bool lbridge_server_listen_custom(lbridge_server_t server, lbridge_custom_backend_fn backend, void* user_data, void* listen_arg, uint32_t max_clients);
 bool lbridge_server_update(lbridge_server_t server);
 void lbridge_server_set_client_timeout(lbridge_server_t server, uint32_t timeout_ms);
 ```
@@ -330,7 +554,20 @@ void lbridge_server_set_client_timeout(lbridge_server_t server, uint32_t timeout
 
 > **Note:** `lbridge_server_listen_bluetooth()` listens on the specified RFCOMM channel (1-30). On Windows, requires the Windows Bluetooth stack. On Linux, requires BlueZ.
 
+> **Note:** `lbridge_server_listen_custom()` starts the server using a user-provided transport backend. See [Custom Backend](#custom-backend) for implementation details.
+
 > **Note:** `lbridge_server_set_client_timeout()` sets the inactivity timeout for clients. If a client doesn't send any data for the specified duration, it will be automatically disconnected. This feature requires `fp_get_time_ms` to be set in the context params. Set to 0 to disable (default).
+
+### Custom Backend Helpers
+
+```c
+void* lbridge_get_backend_data(lbridge_object_t object);
+void lbridge_set_backend_data(lbridge_object_t object, void* data);
+void* lbridge_connection_get_handle(struct lbridge_connection* connection);
+void lbridge_connection_set_handle(struct lbridge_connection* connection, void* handle);
+```
+
+> **Note:** These functions are used by custom backend implementations to store and retrieve transport-specific data. `backend_data` is stored per-object (client or server), while connection handles are stored per-connection (useful for multi-client servers).
 
 ### RPC Context (Server Callbacks)
 
