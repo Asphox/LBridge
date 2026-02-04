@@ -1225,6 +1225,391 @@ TEST_CASE("Server - active client is not disconnected")
 }
 
 // =============================================================================
+// IPv6 Tests
+// =============================================================================
+
+static constexpr const char* TEST_HOST_IPV6 = "::1";
+
+// Helper to check if IPv6 is available on this system
+static bool is_ipv6_available()
+{
+    static int cached_result = -1;  // -1 = not checked, 0 = not available, 1 = available
+    if (cached_result >= 0)
+        return cached_result == 1;
+
+#if defined(_WIN32)
+    // Initialize Winsock
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+    {
+        cached_result = 0;
+        return false;
+    }
+#endif
+
+    // Try to create an IPv6 socket and bind to ::1
+#if defined(_WIN32)
+    SOCKET s = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET)
+    {
+        cached_result = 0;
+        return false;
+    }
+    closesocket(s);
+#else
+    int s = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+    if (s < 0)
+    {
+        cached_result = 0;
+        return false;
+    }
+    close(s);
+#endif
+
+    cached_result = 1;
+    return true;
+}
+
+class TestServerIPv6
+{
+public:
+    TestServerIPv6(fp_rpc_call callback, uint32_t max_clients = 10)
+        : m_callback(callback), m_max_clients(max_clients)
+    {
+    }
+
+    ~TestServerIPv6()
+    {
+        stop();
+    }
+
+    bool start(const char* host = TEST_HOST_IPV6, uint16_t port = TEST_PORT)
+    {
+        struct lbridge_context_params params = { 0 };
+#if defined(LBRIDGE_ENABLE_SECURE)
+        params.fp_generate_nonce = test_generate_nonce;
+#endif
+        params.fp_get_time_ms = get_time_ms_impl;
+        m_ctx = lbridge_context_create(&params);
+        if (!m_ctx)
+            return false;
+
+        m_server = lbridge_server_create(m_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, m_callback);
+        if (!m_server)
+        {
+            lbridge_context_destroy(m_ctx);
+            m_ctx = nullptr;
+            return false;
+        }
+
+        if (!server_listen_tcp_with_retry(m_server, host, port, m_max_clients))
+        {
+            lbridge_server_destroy(m_server);
+            lbridge_context_destroy(m_ctx);
+            m_server = nullptr;
+            m_ctx = nullptr;
+            return false;
+        }
+
+        m_running = true;
+        m_thread = std::thread([this]() { run(); });
+
+        // Wait for server to be ready
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        return true;
+    }
+
+    void stop()
+    {
+        m_running = false;
+        if (m_thread.joinable())
+            m_thread.join();
+
+        if (m_server)
+        {
+            lbridge_server_destroy(m_server);
+            m_server = nullptr;
+        }
+        if (m_ctx)
+        {
+            lbridge_context_destroy(m_ctx);
+            m_ctx = nullptr;
+        }
+    }
+
+    bool is_running() const { return m_running; }
+
+private:
+    void run()
+    {
+        while (m_running)
+        {
+            lbridge_server_update(m_server);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    fp_rpc_call m_callback;
+    uint32_t m_max_clients;
+    lbridge_context_t m_ctx = nullptr;
+    lbridge_server_t m_server = nullptr;
+    std::thread m_thread;
+    std::atomic<bool> m_running{ false };
+};
+
+TEST_CASE("IPv6 TCP handshake - successful connection")
+{
+    if (!is_ipv6_available())
+    {
+        WARN("IPv6 not available on this system, skipping test");
+        return;
+    }
+
+    auto callback = [](const lbridge_rpc_context_t, const uint8_t*, uint32_t) -> bool {
+        return true;
+    };
+
+    TestServerIPv6 server(callback);
+    REQUIRE(server.start());
+
+    TestContext ctx;
+    lbridge_client_t client = lbridge_client_create(ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+
+    bool connected = lbridge_client_connect_tcp(client, TEST_HOST_IPV6, TEST_PORT);
+    CHECK(connected);
+    CHECK(lbridge_client_get_type(client) == LBRIDGE_TYPE_TCP);
+    CHECK(lbridge_get_last_error(client) == LBRIDGE_ERROR_NONE);
+
+    lbridge_client_destroy(client);
+}
+
+TEST_CASE("IPv6 RPC call - echo")
+{
+    if (!is_ipv6_available())
+    {
+        WARN("IPv6 not available on this system, skipping test");
+        return;
+    }
+
+    TestServerIPv6 server(echo_rpc_callback);
+    REQUIRE(server.start());
+
+    TestContext ctx;
+    lbridge_client_t client = lbridge_client_create(ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+    REQUIRE(lbridge_client_connect_tcp(client, TEST_HOST_IPV6, TEST_PORT));
+
+    uint8_t buffer[256];
+    const char* test_message = "Hello, IPv6!";
+    size_t msg_len = strlen(test_message) + 1;
+    memcpy(buffer, test_message, msg_len);
+    uint32_t size = (uint32_t)msg_len;
+
+    bool success = lbridge_client_call_rpc(client, RPC_ECHO, buffer, &size, sizeof(buffer));
+    CHECK(success);
+    CHECK(size == msg_len);
+    CHECK(strcmp((const char*)buffer, test_message) == 0);
+
+    lbridge_client_destroy(client);
+}
+
+TEST_CASE("IPv6 RPC call - multiple calls on same connection")
+{
+    if (!is_ipv6_available())
+    {
+        WARN("IPv6 not available on this system, skipping test");
+        return;
+    }
+
+    TestServerIPv6 server(echo_rpc_callback);
+    REQUIRE(server.start());
+
+    TestContext ctx;
+    lbridge_client_t client = lbridge_client_create(ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+    REQUIRE(lbridge_client_connect_tcp(client, TEST_HOST_IPV6, TEST_PORT));
+
+    for (int i = 0; i < 10; i++)
+    {
+        uint8_t buffer[256];
+        uint32_t value = i * 100;
+        memcpy(buffer, &value, 4);
+        uint32_t size = 4;
+
+        bool success = lbridge_client_call_rpc(client, RPC_ECHO, buffer, &size, sizeof(buffer));
+        CHECK(success);
+
+        uint32_t result;
+        memcpy(&result, buffer, 4);
+        CHECK(result == value);
+    }
+
+    lbridge_client_destroy(client);
+}
+
+TEST_CASE("IPv6 RPC call - large data (fragmentation)")
+{
+    if (!is_ipv6_available())
+    {
+        WARN("IPv6 not available on this system, skipping test");
+        return;
+    }
+
+    TestServerIPv6 server(echo_rpc_callback);
+    REQUIRE(server.start());
+
+    TestContext ctx;
+    lbridge_client_t client = lbridge_client_create(ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+    REQUIRE(lbridge_client_connect_tcp(client, TEST_HOST_IPV6, TEST_PORT));
+
+    // Create data larger than max frame payload to trigger fragmentation
+    std::vector<uint8_t> large_data(MAX_FRAME_PAYLOAD * 3);
+    for (size_t i = 0; i < large_data.size(); i++)
+    {
+        large_data[i] = (uint8_t)(i & 0xFF);
+    }
+
+    std::vector<uint8_t> buffer(large_data.size() + 1024);
+    memcpy(buffer.data(), large_data.data(), large_data.size());
+    uint32_t size = (uint32_t)large_data.size();
+
+    bool success = lbridge_client_call_rpc(client, RPC_LARGE_DATA, buffer.data(), &size, (uint32_t)buffer.size());
+    CHECK(success);
+    CHECK(size == large_data.size());
+    CHECK(memcmp(buffer.data(), large_data.data(), large_data.size()) == 0);
+
+    lbridge_client_destroy(client);
+}
+
+TEST_CASE("IPv6 - multiple clients concurrent connections")
+{
+    if (!is_ipv6_available())
+    {
+        WARN("IPv6 not available on this system, skipping test");
+        return;
+    }
+
+    TestServerIPv6 server(echo_rpc_callback, 10);
+    REQUIRE(server.start());
+
+    constexpr int NUM_CLIENTS = 5;
+    std::vector<std::thread> threads;
+    std::atomic<int> success_count{ 0 };
+
+    for (int c = 0; c < NUM_CLIENTS; c++)
+    {
+        threads.emplace_back([c, &success_count]() {
+            TestContext ctx;
+            lbridge_client_t client = lbridge_client_create(ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+            if (!client)
+                return;
+
+            if (!lbridge_client_connect_tcp(client, TEST_HOST_IPV6, TEST_PORT))
+            {
+                lbridge_client_destroy(client);
+                return;
+            }
+
+            // Each client makes several calls
+            bool all_ok = true;
+            for (int i = 0; i < 5 && all_ok; i++)
+            {
+                uint8_t buffer[256];
+                uint32_t value = c * 1000 + i;
+                memcpy(buffer, &value, 4);
+                uint32_t size = 4;
+
+                if (!lbridge_client_call_rpc(client, RPC_ECHO, buffer, &size, sizeof(buffer)))
+                {
+                    all_ok = false;
+                    break;
+                }
+
+                uint32_t result;
+                memcpy(&result, buffer, 4);
+                if (result != value)
+                {
+                    all_ok = false;
+                    break;
+                }
+            }
+
+            if (all_ok)
+                success_count++;
+
+            lbridge_client_destroy(client);
+        });
+    }
+
+    for (auto& t : threads)
+        t.join();
+
+    CHECK(success_count == NUM_CLIENTS);
+}
+
+#if defined(LBRIDGE_ENABLE_SECURE)
+TEST_CASE("IPv6 RPC call - with encryption")
+{
+    if (!is_ipv6_available())
+    {
+        WARN("IPv6 not available on this system, skipping test");
+        return;
+    }
+
+    static const uint8_t test_key[32] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F
+    };
+
+    // Custom server with encryption
+    struct lbridge_context_params params = { 0 };
+    params.fp_generate_nonce = test_generate_nonce;
+    params.fp_get_time_ms = get_time_ms_impl;
+
+    lbridge_context_t server_ctx = lbridge_context_create(&params);
+    REQUIRE(server_ctx != nullptr);
+
+    lbridge_server_t server = lbridge_server_create(server_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, echo_rpc_callback);
+    REQUIRE(server != nullptr);
+
+    lbridge_activate_encryption(server, test_key);
+    REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST_IPV6, TEST_PORT, 10));
+
+    ScopedServerThread server_thread(server);
+
+    // Client with encryption
+    TestContext ctx;
+    lbridge_client_t client = lbridge_client_create(ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+
+    lbridge_activate_encryption(client, test_key);
+    REQUIRE(lbridge_client_connect_tcp(client, TEST_HOST_IPV6, TEST_PORT));
+
+    // Make RPC call
+    uint8_t buffer[256];
+    const char* test_message = "Encrypted IPv6 Hello!";
+    size_t msg_len = strlen(test_message) + 1;
+    memcpy(buffer, test_message, msg_len);
+    uint32_t size = (uint32_t)msg_len;
+
+    bool success = lbridge_client_call_rpc(client, RPC_ECHO, buffer, &size, sizeof(buffer));
+    CHECK(success);
+    CHECK(size == msg_len);
+    CHECK(strcmp((const char*)buffer, test_message) == 0);
+
+    lbridge_client_destroy(client);
+
+    server_thread.stop();
+    lbridge_server_destroy(server);
+    lbridge_context_destroy(server_ctx);
+}
+#endif // LBRIDGE_ENABLE_SECURE
+
+// =============================================================================
 // Integration Tests (Client <-> Server over Unix Domain Socket)
 // =============================================================================
 

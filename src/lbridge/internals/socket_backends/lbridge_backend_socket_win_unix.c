@@ -1,5 +1,6 @@
 #include "../lbridge_internal.h"
 #include "lbridge_socket_win_unix.h"
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -12,32 +13,55 @@ bool lbridge_tcp_client_impl_connect(struct lbridge_client* p_client, void* arg)
 	INIT_SOCKET_IF_NEEDED();
 	p_client->connection.as_ptr = NULL;
 	const struct lbridge_tcp_connection_data* connection_data = arg;
-	struct sockaddr_in addr;
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(connection_data->port);
-	inet_pton(AF_INET, connection_data->host, &addr.sin_addr);
-	socket_t s = socket(AF_INET, SOCK_STREAM, 0);
-	if (!IS_VALID_SOCKET(s))
+
+	struct addrinfo hints, *result, *rp;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;     // IPv4 or IPv6
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+
+	char port_str[6];
+	snprintf(port_str, sizeof(port_str), "%u", connection_data->port);
+
+	if (getaddrinfo(connection_data->host, port_str, &hints, &result) != 0)
 	{
-		int err = GET_LAST_SOCKET_ERROR();
-		(void)err;
+		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
 		return false;
 	}
-	if (!lbridge_socket_set_nonblocking(s, true))
+
+	socket_t s = INVALID_SOCK;
+	for (rp = result; rp != NULL; rp = rp->ai_next)
 	{
-		int err = GET_LAST_SOCKET_ERROR();
-		(void)err;
-		CLOSE_SOCKET(s);
-		return false;
-	}
-	if (connect(s, (struct sockaddr*)&addr, sizeof(addr)) != 0)
-	{
-		const int err_connection = GET_LAST_SOCKET_ERROR();
-		if (err_connection != LBRIDGE_EINPROGRESS && err_connection != LBRIDGE_EWOULDBLOCK)
+		s = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+		if (!IS_VALID_SOCKET(s))
+			continue;
+
+		if (!lbridge_socket_set_nonblocking(s, true))
 		{
 			CLOSE_SOCKET(s);
-			return false;
+			s = INVALID_SOCK;
+			continue;
 		}
+
+		if (connect(s, rp->ai_addr, (int)rp->ai_addrlen) != 0)
+		{
+			const int err_connection = GET_LAST_SOCKET_ERROR();
+			if (err_connection != LBRIDGE_EINPROGRESS && err_connection != LBRIDGE_EWOULDBLOCK)
+			{
+				CLOSE_SOCKET(s);
+				s = INVALID_SOCK;
+				continue;
+			}
+		}
+		break; // Successfully initiated connection
+	}
+
+	freeaddrinfo(result);
+
+	if (!IS_VALID_SOCKET(s))
+	{
+		p_client->base.last_error = LBRIDGE_ERROR_CONNECTION_FAILED;
+		return false;
 	}
 	// connect with timeout
 	fd_set wfds, efds;
@@ -114,43 +138,59 @@ bool lbridge_tcp_server_impl_open(struct lbridge_server* p_server, void* arg)
 	INIT_SOCKET_IF_NEEDED();
 
 	const struct lbridge_tcp_connection_data* connection_data = arg;
-	struct sockaddr_in addr;
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(connection_data->port);
-	if (inet_pton(AF_INET, connection_data->host, &addr.sin_addr) <= 0)
+
+	struct addrinfo hints, *result, *rp;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;     // IPv4 or IPv6
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	hints.ai_flags = AI_PASSIVE;     // For binding
+
+	char port_str[6];
+	snprintf(port_str, sizeof(port_str), "%u", connection_data->port);
+
+	if (getaddrinfo(connection_data->host, port_str, &hints, &result) != 0)
 	{
 		p_server->base.last_error = LBRIDGE_ERROR_BAD_ARGUMENT;
 		return false;
 	}
 
-	socket_t s = socket(AF_INET, SOCK_STREAM, 0);
+	socket_t s = INVALID_SOCK;
+	for (rp = result; rp != NULL; rp = rp->ai_next)
+	{
+		s = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+		if (!IS_VALID_SOCKET(s))
+			continue;
+
+		// Set socket options (reuse address)
+		int opt = 1;
+		setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+#if defined(SO_REUSEPORT) && !defined(_WIN32)
+		// On Linux/macOS, SO_REUSEPORT allows binding to a port in TIME_WAIT state
+		setsockopt(s, SOL_SOCKET, SO_REUSEPORT, (const char*)&opt, sizeof(opt));
+#endif
+
+		// Enable dual-stack for IPv6 sockets (accept both IPv4 and IPv6)
+		if (rp->ai_family == AF_INET6)
+		{
+			int v6only = 0;
+			setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (const char*)&v6only, sizeof(v6only));
+		}
+
+		if (bind(s, rp->ai_addr, (int)rp->ai_addrlen) != 0)
+		{
+			CLOSE_SOCKET(s);
+			s = INVALID_SOCK;
+			continue;
+		}
+		break; // Successfully bound
+	}
+
+	freeaddrinfo(result);
+
 	if (!IS_VALID_SOCKET(s))
 	{
 		p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
-		return false;
-	}
-
-	// Set socket options (reuse address)
-	int opt = 1;
-	setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
-#if defined(SO_REUSEPORT) && !defined(_WIN32)
-	// On Linux/macOS, SO_REUSEPORT allows binding to a port in TIME_WAIT state
-	setsockopt(s, SOL_SOCKET, SO_REUSEPORT, (const char*)&opt, sizeof(opt));
-#endif
-
-	if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) != 0)
-	{
-		const int socket_error = GET_LAST_SOCKET_ERROR();
-		switch (socket_error)
-		{
-		case LBRIDGE_EADDRINUSE:
-			p_server->base.last_error = LBRIDGE_ERROR_RESSOURCE_UNAVAILABLE;
-			break;
-		default:
-			p_server->base.last_error = LBRIDGE_ERROR_SERVER_OPEN_FAILED;
-			break;
-		}
-		CLOSE_SOCKET(s);
 		return false;
 	}
 	// Set non-blocking
@@ -192,7 +232,7 @@ bool lbridge_tcp_server_impl_accept(struct lbridge_server* p_server, void* arg)
 		p_server->base.last_error = LBRIDGE_ERROR_NOT_CONNECTED;
 		return false;
 	}
-	struct sockaddr_in client_addr;
+	struct sockaddr_storage client_addr;
 	memset(&client_addr, 0, sizeof(client_addr));
 	socklen_t client_addr_len = sizeof(client_addr);
 	socket_t client_socket = accept(server_socket, (struct sockaddr*)&client_addr, &client_addr_len);

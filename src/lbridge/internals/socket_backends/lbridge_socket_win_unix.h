@@ -60,6 +60,7 @@ static inline _Bool lbridge_socket_set_nonblocking(socket_t s, _Bool nonblocking
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <string.h>
 
 typedef int socket_t;
