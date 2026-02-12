@@ -64,7 +64,8 @@ bool __lbridge_send_data_sequence_rpc(lbridge_object_t p_object, uint16_t rpc_id
 	{
 		return false;
 	}
-	if (data == NULL || size == 0 || p_connection == NULL)
+	const bool are_arguments_invalid = (data == NULL || p_connection == NULL);
+	if (are_arguments_invalid)
 	{
 		__lbridge_object_set_error(p_object, LBRIDGE_ERROR_BAD_ARGUMENT);
 		return false;
