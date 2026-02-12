@@ -729,7 +729,8 @@ bool lbridge_client_call_rpc(lbridge_client_t p_client, uint16_t rpc_id, uint8_t
 	{
 		return false;
 	}
-	if (inout_data == NULL || inout_size == NULL || *inout_size == 0)
+	const bool are_arguments_invalid = (inout_data == NULL || inout_size == NULL || (*inout_size > max_out_size && max_out_size != 0));
+	if (are_arguments_invalid)
 	{
 		__lbridge_object_set_error(p_client, LBRIDGE_ERROR_BAD_ARGUMENT);
 		return false;
