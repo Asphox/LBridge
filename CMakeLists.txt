@@ -129,6 +129,7 @@ if(LBRIDGE_BUILD_TESTS)
         $<$<PLATFORM_ID:Windows>:_CONSOLE>
         $<$<PLATFORM_ID:Windows>:UNICODE>
         $<$<PLATFORM_ID:Windows>:_UNICODE>
+        LBRIDGE_ENABLE_LOG
     )
 
     if(MSVC)

@@ -6,6 +6,8 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include "../lbridge.h"
 #include "../lbridge_custom_backend.h"
 #if defined(LBRIDGE_ENABLE_SECURE)
@@ -24,6 +26,42 @@ extern "C" {
 #endif
 
 #define LBRIDGE_UNUSED(x) (void)(x)
+
+// Logging infrastructure
+#if defined(LBRIDGE_ENABLE_LOG_ERROR) || defined(LBRIDGE_ENABLE_LOG_INFO) || defined(LBRIDGE_ENABLE_LOG_TRACE)
+#define __LBRIDGE_LOG_ANY_ENABLED
+#endif
+
+#ifdef __LBRIDGE_LOG_ANY_ENABLED
+static inline void __lbridge_log(struct lbridge_context* ctx, enum lbridge_log_level level, const char* fmt, ...)
+{
+	if (ctx == NULL || ctx->params.fp_log == NULL) return;
+	char buf[256];
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, args);
+	va_end(args);
+	ctx->params.fp_log(ctx, level, buf);
+}
+#endif
+
+#if defined(LBRIDGE_ENABLE_LOG_ERROR)
+#define LBRIDGE_LOG_ERROR(ctx, fmt, ...) __lbridge_log(ctx, LBRIDGE_LOG_LEVEL_ERROR, fmt, ##__VA_ARGS__)
+#else
+#define LBRIDGE_LOG_ERROR(ctx, fmt, ...) ((void)0)
+#endif
+
+#if defined(LBRIDGE_ENABLE_LOG_INFO)
+#define LBRIDGE_LOG_INFO(ctx, fmt, ...) __lbridge_log(ctx, LBRIDGE_LOG_LEVEL_INFO, fmt, ##__VA_ARGS__)
+#else
+#define LBRIDGE_LOG_INFO(ctx, fmt, ...) ((void)0)
+#endif
+
+#if defined(LBRIDGE_ENABLE_LOG_TRACE)
+#define LBRIDGE_LOG_TRACE(ctx, fmt, ...) __lbridge_log(ctx, LBRIDGE_LOG_LEVEL_TRACE, fmt, ##__VA_ARGS__)
+#else
+#define LBRIDGE_LOG_TRACE(ctx, fmt, ...) ((void)0)
+#endif
 
 // Aliases for internal code compatibility (use shared structures from lbridge_custom_backend.h)
 #define lbridge_object_send_data    lbridge_backend_send_data
@@ -270,6 +308,22 @@ static inline void __lbridge_frame_set_payload_length(struct lbridge_frame* fram
 static inline void __lbridge_object_set_error(lbridge_object_t obj, enum lbridge_error_code error_code)
 {
 	((struct lbridge_object*)obj)->last_error = error_code;
+#if defined(LBRIDGE_ENABLE_LOG_ERROR)
+	if (error_code != LBRIDGE_ERROR_NONE)
+	{
+		static const char* error_names[] = {
+			"NONE", "BAD_ALLOC", "BAD_ARGUMENT", "CONNECTION_TIMEOUT",
+			"CONNECTION_FAILED", "CONNECTION_UNKNOWN", "NOT_CONNECTED",
+			"CONNECTION_LOST", "SEND_TIMEOUT", "SEND_FAILED", "SEND_UNKNOWN",
+			"RECEIVE_TIMEOUT", "SERVER_OPEN_FAILED", "RESSOURCE_UNAVAILABLE",
+			"HANDSHAKE_FAILED", "TOO_MUCH_DATA", "AUTHENTICATION_FAILED",
+			"PROTOCOL_VIOLATION", "INVALID_RPC_ID"
+		};
+		const char* name = ((unsigned)error_code < sizeof(error_names)/sizeof(error_names[0]))
+			? error_names[(unsigned)error_code] : "UNKNOWN";
+		LBRIDGE_LOG_ERROR(((struct lbridge_object*)obj)->context, "error: %s", name);
+	}
+#endif
 }
 
 static inline enum lbridge_error_code __lbridge_object_get_error(const lbridge_object_t obj)

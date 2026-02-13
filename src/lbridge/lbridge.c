@@ -8,6 +8,20 @@ extern "C" {
 
 #include "internals/lbridge_internal.h"
 
+#ifdef __LBRIDGE_LOG_ANY_ENABLED
+#include <stdio.h>
+void lbridge_log_default(lbridge_context_t context, enum lbridge_log_level level, const char* message)
+{
+	(void)context;
+	static const char* level_names[] = { "ERROR", "INFO", "TRACE" };
+	const char* level_name = (level <= LBRIDGE_LOG_LEVEL_TRACE) ? level_names[level] : "?";
+	if (level == LBRIDGE_LOG_LEVEL_ERROR)
+		fprintf(stderr, "[LBridge/%s] %s\n", level_name, message);
+	else
+		printf("[LBridge/%s] %s\n", level_name, message);
+}
+#endif
+
 bool __lbridge_send_data(lbridge_object_t p_object, const uint8_t* data, uint32_t size, struct lbridge_connection* p_connection)
 {
 	if (p_object == NULL)
@@ -453,6 +467,7 @@ lbridge_context_t lbridge_context_create(struct lbridge_context_params* p_params
 		return NULL;
 	}
 	context->params = params;
+	LBRIDGE_LOG_INFO(context, "context created");
 	return context;
 }
 
@@ -742,6 +757,7 @@ bool lbridge_client_call_rpc(lbridge_client_t p_client, uint16_t rpc_id, uint8_t
 		return false;
 	}
 	__lbridge_object_set_error(p_client, LBRIDGE_ERROR_NONE);
+	LBRIDGE_LOG_TRACE(__lbridge_object_get_context(p_client), "client: rpc call (id=%u, size=%u)", (unsigned)rpc_id, (unsigned)*inout_size);
 
 	const bool response_expected = (max_out_size != 0);
 
@@ -773,6 +789,7 @@ bool lbridge_client_ping(lbridge_client_t p_client)
 		return false;
 	}
 	__lbridge_object_set_error(p_client, LBRIDGE_ERROR_NONE);
+	LBRIDGE_LOG_TRACE(__lbridge_object_get_context(p_client), "client: ping");
 
 	// Build ping frame: start=1, end=1, cmd=1, opcode=PING, payload_len=0
 	struct lbridge_frame ping_frame;
@@ -808,7 +825,12 @@ bool lbridge_client_connect_tcp(lbridge_client_t p_client, const char* host, uin
 	{
 		return false;
 	}
-	return __lbridge_client_handshake(p_client);
+	if (!__lbridge_client_handshake(p_client))
+	{
+		return false;
+	}
+	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_client), "client connected (TCP %s:%u)", host, (unsigned)port);
+	return true;
 }
 #endif
 
@@ -830,7 +852,12 @@ bool lbridge_client_connect_unix(lbridge_client_t p_client, const char* socket_p
 	{
 		return false;
 	}
-	return __lbridge_client_handshake(p_client);
+	if (!__lbridge_client_handshake(p_client))
+	{
+		return false;
+	}
+	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_client), "client connected (UNIX %s)", socket_path);
+	return true;
 }
 #endif
 
@@ -1077,6 +1104,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	// process handshake frame
 	p_connection->base.waiting_handshake = false;
 	p_connection->base.connected = true;
+	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: client connected");
 	return true;
 }
 
@@ -1128,6 +1156,7 @@ bool LBRIDGE_API lbridge_server_listen_tcp(lbridge_server_t p_server, const char
 		__lbridge_server_free_connections(p_server);
 		return false;
 	}
+	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server listening (TCP %s:%u)", address, (unsigned)port);
 	return true;
 }
 
@@ -1229,6 +1258,7 @@ void __lbridge_server_remove_connection(lbridge_server_t p_server, uint32_t inde
 	{
 		return;
 	}
+	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: client disconnected");
 	struct lbridge_connection_async* connection = &p_server->connections.array[index];
 	if (connection->base.connected)
 	{
@@ -1300,6 +1330,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 			const uint64_t elapsed_ms = current_time_ms - connection->last_activity_ms;
 			if (elapsed_ms >= p_server->client_timeout_ms)
 			{
+				LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: client timed out");
 				__lbridge_server_remove_connection(p_server, i_connection, LBRIDGE_PROTOCOL_ERROR_INACTIVITY_TIMEOUT);
 				continue; // connection removed, don't increment i_connection
 			}
@@ -1454,6 +1485,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 						}
 #endif // LBRIDGE_ENABLE_SECURE
 
+						LBRIDGE_LOG_TRACE(__lbridge_object_get_context(p_server), "server: rpc received (id=%u, size=%u)", (unsigned)rpc_id, (unsigned)connection->receive_buffer_used_size);
 						struct lbridge_rpc_context rpc_ctx;
 						rpc_ctx.object = p_server;
 						rpc_ctx.connection = (struct lbridge_connection*)connection;

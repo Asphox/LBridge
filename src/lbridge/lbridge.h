@@ -49,6 +49,20 @@
 
 #endif // LBRIDGE_ENABLE_SERVER
 
+// LBRIDGE_ENABLE_LOG activates all 3 log levels
+// Otherwise, enable individually: LBRIDGE_ENABLE_LOG_ERROR, LBRIDGE_ENABLE_LOG_INFO, LBRIDGE_ENABLE_LOG_TRACE
+#ifdef LBRIDGE_ENABLE_LOG
+#ifndef LBRIDGE_ENABLE_LOG_ERROR
+#define LBRIDGE_ENABLE_LOG_ERROR
+#endif
+#ifndef LBRIDGE_ENABLE_LOG_INFO
+#define LBRIDGE_ENABLE_LOG_INFO
+#endif
+#ifndef LBRIDGE_ENABLE_LOG_TRACE
+#define LBRIDGE_ENABLE_LOG_TRACE
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -150,6 +164,18 @@ enum lbridge_type
 typedef struct lbridge_context* lbridge_context_t;
 
 /**
+ * @brief Log level for LBridge logging callbacks.
+ *
+ * Used to indicate the severity of a log message passed to the fp_log callback.
+ */
+enum lbridge_log_level
+{
+	LBRIDGE_LOG_LEVEL_ERROR = 0,
+	LBRIDGE_LOG_LEVEL_INFO  = 1,
+	LBRIDGE_LOG_LEVEL_TRACE = 2,
+};
+
+/**
  * @brief Parameters for initializing the LBridge context.
  *
  * Must be provided when creating a new LBridge context with lbridge_context_create().
@@ -174,6 +200,9 @@ struct lbridge_context_params
 	 * @return Current time in milliseconds (monotonic).
 	 */
 	uint64_t (*fp_get_time_ms)(lbridge_context_t context);
+#if defined(LBRIDGE_ENABLE_LOG_ERROR) || defined(LBRIDGE_ENABLE_LOG_INFO) || defined(LBRIDGE_ENABLE_LOG_TRACE)
+	void (*fp_log)(lbridge_context_t context, enum lbridge_log_level level, const char* message);
+#endif
 };
 
 /**
@@ -584,6 +613,20 @@ bool LBRIDGE_API lbridge_server_listen_bluetooth(lbridge_server_t server, uint8_
 bool LBRIDGE_API lbridge_server_listen_custom(lbridge_server_t server, lbridge_custom_backend_fn backend, void* user_data, void* listen_arg, uint32_t max_nb_clients);
 
 #endif // LBRIDGE_ENABLE_SERVER
+
+#if defined(LBRIDGE_ENABLE_LOG_ERROR) || defined(LBRIDGE_ENABLE_LOG_INFO) || defined(LBRIDGE_ENABLE_LOG_TRACE)
+/**
+ * @brief Default logging function that outputs to stdout/stderr.
+ *
+ * ERROR level messages go to stderr, INFO and TRACE go to stdout.
+ * Can be assigned to fp_log in lbridge_context_params.
+ *
+ * @param context The LBridge context (unused).
+ * @param level   The log level of the message.
+ * @param message The log message string.
+ */
+void LBRIDGE_API lbridge_log_default(lbridge_context_t context, enum lbridge_log_level level, const char* message);
+#endif
 
 #ifdef __cplusplus
 }
