@@ -1027,6 +1027,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 		__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INVALID_OPCODE_HANDSHAKE);
 		return false;
 	}
+	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: handshake request received");
 
 	// next 2 bytes are max payload size per frame supported by client
 	// the negotiated value is the minimum between server and client capabilities
@@ -1104,7 +1105,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	// process handshake frame
 	p_connection->base.waiting_handshake = false;
 	p_connection->base.connected = true;
-	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: client connected");
+	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: handshake completed");
 	return true;
 }
 
@@ -1298,6 +1299,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 			return false;
 		if (accept_data.new_client_accepted)
 		{
+			LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: client accepted");
 			connection.base.connected = true;
 			connection.base.waiting_handshake = true;
 			// Initialize last activity timestamp if time callback is available
