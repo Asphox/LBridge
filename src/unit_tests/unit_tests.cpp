@@ -521,6 +521,26 @@ TEST_CASE("RPC call - echo")
     lbridge_client_destroy(client);
 }
 
+TEST_CASE("RPC call - zero size data")
+{
+    TestServer server(echo_rpc_callback);
+    REQUIRE(server.start());
+
+    TestContext ctx;
+    lbridge_client_t client = lbridge_client_create(ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+    REQUIRE(lbridge_client_connect_tcp(client, TEST_HOST, TEST_PORT));
+
+    uint8_t buffer[1] = { 0 };
+    uint32_t size = 0;
+
+    bool success = lbridge_client_call_rpc(client, RPC_ECHO, buffer, &size, sizeof(buffer));
+    CHECK(success);
+    CHECK(size == 0);
+
+    lbridge_client_destroy(client);
+}
+
 TEST_CASE("RPC call - add two numbers")
 {
     TestServer server(echo_rpc_callback);

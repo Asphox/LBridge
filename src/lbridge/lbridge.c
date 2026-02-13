@@ -191,34 +191,16 @@ bool __lbridge_send_data_sequence_rpc(lbridge_object_t p_object, uint16_t rpc_id
 	}
 #endif // LBRIDGE_ENABLE_SECURE
 
+	// Send start frame header (always, even for zero-size payload)
+	if (!__lbridge_send_data(p_object, (const uint8_t*)&start_frame_header, sizeof(struct lbridge_frame), p_connection))
+	{
+		goto lbl_return;
+	}
+
 	uint32_t payload_bytes_remaining = size_with_encryption_tag;
 	uint32_t offset = 0;
 	while (payload_bytes_remaining > 0)
 	{
-		if(offset == 0)
-		{
-			// start frame
-			if (!__lbridge_send_data(p_object, (const uint8_t*)&start_frame_header, sizeof(struct lbridge_frame), p_connection))
-			{
-				goto lbl_return;
-			}
-		}
-		else if (payload_bytes_remaining <= object_max_frame_payload_size)
-		{
-			// end frame
-			if (!__lbridge_send_data(p_object, (const uint8_t*)&end_frame_header, sizeof(struct lbridge_frame), p_connection))
-			{
-				goto lbl_return;
-			}
-		}
-		else
-		{
-			// continue frame
-			if (!__lbridge_send_data(p_object, (const uint8_t*)&continue_frame_header, sizeof(struct lbridge_frame), p_connection))
-			{
-				goto lbl_return;
-			}
-		}
 		const uint16_t frame_payload_size = (uint16_t)min(payload_bytes_remaining, object_max_frame_payload_size);
 		if (!__lbridge_send_data(p_object, data + offset, frame_payload_size, p_connection))
 		{
@@ -226,6 +208,26 @@ bool __lbridge_send_data_sequence_rpc(lbridge_object_t p_object, uint16_t rpc_id
 		}
 		payload_bytes_remaining -= frame_payload_size;
 		offset += frame_payload_size;
+
+		if (payload_bytes_remaining > 0)
+		{
+			if (payload_bytes_remaining <= object_max_frame_payload_size)
+			{
+				// end frame
+				if (!__lbridge_send_data(p_object, (const uint8_t*)&end_frame_header, sizeof(struct lbridge_frame), p_connection))
+				{
+					goto lbl_return;
+				}
+			}
+			else
+			{
+				// continue frame
+				if (!__lbridge_send_data(p_object, (const uint8_t*)&continue_frame_header, sizeof(struct lbridge_frame), p_connection))
+				{
+					goto lbl_return;
+				}
+			}
+		}
 	}
 
 	result = true;
@@ -332,14 +334,16 @@ bool __lbridge_receive_data_sequence_rpc(lbridge_object_t p_object, uint8_t* out
 #endif
 
 		// copy payload to output buffer
-		uint32_t payload_recv = 0;
-		const bool payload_read_success = __lbridge_receive_data(p_object, out_data + current_offset, frame_payload_len, &payload_recv, p_connection, LBRIDGE_RECEIVE_BLOCKING);
-		if( !payload_read_success || payload_recv != frame_payload_len) 
+		if (frame_payload_len > 0)
 		{
-			goto lbl_return;
+			uint32_t payload_recv = 0;
+			const bool payload_read_success = __lbridge_receive_data(p_object, out_data + current_offset, frame_payload_len, &payload_recv, p_connection, LBRIDGE_RECEIVE_BLOCKING);
+			if( !payload_read_success || payload_recv != frame_payload_len)
+			{
+				goto lbl_return;
+			}
+			current_offset += frame_payload_len;
 		}
-
-		current_offset += frame_payload_len;
 	}
 
 	// Currently, out_data contains the full received data (+ 8 bytes tag if encrypted)
@@ -1442,20 +1446,23 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 					const uint16_t payload_length = __lbridge_frame_get_payload_length((const struct lbridge_frame*)&connection->current_frame_header);
 					const uint16_t rpc_id = __lbridge_frame_get_rpc_id((const struct lbridge_frame*)&connection->current_frame_header);
 					const bool is_end_frame = __lbridge_frame_is_end((const struct lbridge_frame*)&connection->current_frame_header);
-					uint32_t received_size = 0;
-					// receive payload
-					if (!__lbridge_receive_data(p_server, connection->receive_buffer + connection->receive_buffer_used_size, payload_length, &received_size, (struct lbridge_connection*)connection, 0))
+					if (payload_length > 0)
 					{
-						__lbridge_server_remove_connection(p_server, i_connection, LBRIDGE_PROTOCOL_ERROR_INTERNAL);
-						goto lbl_next_connection;
-					}
-					if (received_size == 0)
-					{
-						// no more data pending for this client, we can check the next one
-						break;
+						uint32_t received_size = 0;
+						// receive payload
+						if (!__lbridge_receive_data(p_server, connection->receive_buffer + connection->receive_buffer_used_size, payload_length, &received_size, (struct lbridge_connection*)connection, 0))
+						{
+							__lbridge_server_remove_connection(p_server, i_connection, LBRIDGE_PROTOCOL_ERROR_INTERNAL);
+							goto lbl_next_connection;
+						}
+						if (received_size == 0)
+						{
+							// no more data pending for this client, we can check the next one
+							break;
+						}
+						connection->receive_buffer_used_size += received_size;
 					}
 					connection->current_frame_header = 0; // reset for next frame
-					connection->receive_buffer_used_size += received_size;
 					// a full message has been received, we can process it
 					if (is_end_frame)
 					{
