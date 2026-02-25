@@ -138,6 +138,7 @@ enum lbridge_protocol_error
 	LBRIDGE_PROTOCOL_ERROR_PAYLOAD_TOO_LARGE,                 /**< Payload exceeds maximum allowed size. */
 	LBRIDGE_PROTOCOL_ERROR_INACTIVITY_TIMEOUT,                /**< Client disconnected due to inactivity. */
 	LBRIDGE_PROTOCOL_ERROR_INVALID_RPC_ID,                    /**< Invalid RPC ID received. */
+	LBRIDGE_PROTOCOL_ERROR_VERSION_MISMATCH,                  /**< Protocol version mismatch (negotiated version is 0). */
 };
 
 /**

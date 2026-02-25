@@ -101,7 +101,7 @@ bool __lbridge_send_data_sequence_rpc(lbridge_object_t p_object, uint16_t rpc_id
 	uint8_t* encrypted_data = NULL;
 	mbedtls_chachapoly_context chachapoly_ctx;
 	uint8_t 	tag[16];
-	const uint32_t size_with_encryption_tag = size + (encryption_needed ? 8 : 0);
+	const uint32_t size_with_encryption_tag = size + (encryption_needed ? 16 : 0);
 	if (size_with_encryption_tag > max_payload_size)
 	{
 		last_error = LBRIDGE_ERROR_TOO_MUCH_DATA;
@@ -117,7 +117,7 @@ bool __lbridge_send_data_sequence_rpc(lbridge_object_t p_object, uint16_t rpc_id
 			goto lbl_return;
 		}
 		mbedtls_chachapoly_init(&chachapoly_ctx);
-		mbedtls_chachapoly_setkey(&chachapoly_ctx, encryption_key);
+		mbedtls_chachapoly_setkey(&chachapoly_ctx, p_connection->session_key);
 		mbedtls_chachapoly_starts(&chachapoly_ctx, p_connection->counters.send.full_nonce, MBEDTLS_CHACHAPOLY_ENCRYPT);
 	}
 #else
@@ -185,8 +185,8 @@ bool __lbridge_send_data_sequence_rpc(lbridge_object_t p_object, uint16_t rpc_id
 		// encrypt data
 		mbedtls_chachapoly_update(&chachapoly_ctx, size, data, encrypted_data);
 		mbedtls_chachapoly_finish(&chachapoly_ctx, tag);
-		// add the 8 first bytes of the tag to the encrypted data
-		memcpy(encrypted_data + size, tag, 8);
+		// append the full authentication tag to the encrypted data
+		memcpy(encrypted_data + size, tag, 16);
 		data = encrypted_data;
 	}
 #endif // LBRIDGE_ENABLE_SECURE
@@ -266,7 +266,7 @@ bool __lbridge_receive_data_sequence_rpc(lbridge_object_t p_object, uint8_t* out
 	if (encryption_needed)
 	{
 		mbedtls_chachapoly_init(&ctx);
-		mbedtls_chachapoly_setkey(&ctx, encryption_key);
+		mbedtls_chachapoly_setkey(&ctx, p_connection->session_key);
 		mbedtls_chachapoly_starts(&ctx, p_connection->counters.receive.full_nonce, MBEDTLS_CHACHAPOLY_DECRYPT);
 	}
 #endif
@@ -346,24 +346,24 @@ bool __lbridge_receive_data_sequence_rpc(lbridge_object_t p_object, uint8_t* out
 		}
 	}
 
-	// Currently, out_data contains the full received data (+ 8 bytes tag if encrypted)
+	// Currently, out_data contains the full received data (+ 16 bytes tag if encrypted)
 #if defined(LBRIDGE_ENABLE_SECURE)
-	if (encryption_needed) 
+	if (encryption_needed)
 	{
-		if (current_offset < 8) 
+		if (current_offset < 16)
 		{
 			goto lbl_return;
 		}
 
-		uint32_t pure_data_size = current_offset - 8;
+		uint32_t pure_data_size = current_offset - 16;
 		uint8_t generated_tag[16];
 
 		// Decode data and process the tag
 		mbedtls_chachapoly_update(&ctx, pure_data_size, out_data, out_data);
 		mbedtls_chachapoly_finish(&ctx, generated_tag);
 
-		// Compare the first 8 bytes of the generated tag with the received tag
-		if (memcmp(out_data + pure_data_size, generated_tag, 8) != 0) 
+		// Compare the full authentication tag with the received tag
+		if (memcmp(out_data + pure_data_size, generated_tag, 16) != 0) 
 		{
 			last_error = LBRIDGE_ERROR_AUTHENTICATION_FAILED;
 			goto lbl_return;
@@ -610,7 +610,8 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 
 	uint16_t command_data = 0;
 	command_data |= ((uint16_t)LBRIDGE_FRAME_HEADER_CMD_HELLO_OPCODE << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_OFFSET);
-	command_data |= ((uint16_t)(encryption_needed ? 1 : 0) << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_OFFSET); // no encryption
+	command_data |= ((uint16_t)(encryption_needed ? 1 : 0) << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_OFFSET);
+	command_data |= ((uint16_t)LBRIDGE_PROTOCOL_VERSION << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_OFFSET);
 	__lbridge_frame_set_cmd_data(handshake_frame, command_data);
 	__lbridge_frame_set_payload_length(handshake_frame, p_client->base.max_frame_payload_size); // in the handshake only, the payload length indicates the size of the max data size field (2 bytes)
 	if(!__lbridge_send_data(p_client, (const uint8_t*)handshake_frame, sizeof(struct lbridge_frame), &p_client->connection))
@@ -677,10 +678,26 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 	}
 	p_client->base.max_frame_payload_size = negotiated_max_payload_len;
 
+	// extract negotiated protocol version from server response
+	const uint8_t negotiated_version = (uint8_t)((command_data & LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_MASK) >> LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_OFFSET);
+	if (negotiated_version == 0)
+	{
+		__lbridge_object_set_error(p_client, LBRIDGE_ERROR_HANDSHAKE_FAILED);
+		return false;
+	}
+	p_client->connection.protocol_version = negotiated_version;
+
 #if defined(LBRIDGE_ENABLE_SECURE)
 	// if encryption is needed, xor the server nonce with client nonce to create the final nonce
 	if (encryption_needed)
 	{
+		// derive session key from PSK + both nonces (before XOR overwrites them)
+		__lbridge_derive_session_key(
+			p_client->base.encryption_key_256bits,
+			p_client->connection.counters.send.full_nonce,  // client nonce
+			handshake_frame->data,                          // server nonce
+			p_client->connection.session_key);
+
 		for(int i = 0; i < 12; i++)
 		{
 			p_client->connection.counters.send.full_nonce[i] ^= handshake_frame->data[i];
@@ -1038,6 +1055,15 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	const uint16_t client_max_frame_payload_size = __lbridge_frame_get_payload_length(handshake_frame);
 	const uint16_t negotiated_max_payload_size = min(client_max_frame_payload_size, p_server->base.max_frame_payload_size);
 
+	// negotiate protocol version (min between client and server)
+	const uint8_t client_version = (uint8_t)((cmd_data & LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_MASK) >> LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_OFFSET);
+	const uint8_t negotiated_version = (uint8_t)min(client_version, LBRIDGE_PROTOCOL_VERSION);
+	if (negotiated_version == 0)
+	{
+		__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_VERSION_MISMATCH);
+		return false;
+	}
+
 	// if encryption requested, we check the 12 bytes of nonce
 	const bool client_encryption_flag = (cmd_data & LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_MASK) != 0;
 	if (client_encryption_flag)
@@ -1069,6 +1095,13 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INTERNAL);
 			return false;
 		}
+		// derive session key from PSK + both nonces (before XOR overwrites them)
+		__lbridge_derive_session_key(
+			p_server->base.encryption_key_256bits,
+			raw_data + sizeof(struct lbridge_frame),  // client nonce
+			server_nonce,
+			p_connection->base.session_key);
+
 		for (uint8_t i = 0; i < 12; ++i)
 		{
 			// we XOR client nonce and server nonce to create shared nonce
@@ -1084,7 +1117,7 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 		}
 
 		mbedtls_chachapoly_init(&p_connection->chachapoly_ctx);
-		mbedtls_chachapoly_setkey(&p_connection->chachapoly_ctx, p_server->base.encryption_key_256bits);
+		mbedtls_chachapoly_setkey(&p_connection->chachapoly_ctx, p_connection->base.session_key);
 #else
 		__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_ENCRYPTION_NOT_SUPPORTED_ON_SERVER);
 		return false;
@@ -1097,7 +1130,8 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	__lbridge_frame_set_cmd(handshake_frame, true);
 	uint16_t command_data_response = 0;
 	command_data_response |= ((uint16_t)LBRIDGE_FRAME_HEADER_CMD_HELLO_OPCODE << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_OFFSET);
-	command_data_response |= ((uint16_t)(client_encryption_flag ? 1 : 0) << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_OFFSET); // encryption flag
+	command_data_response |= ((uint16_t)(client_encryption_flag ? 1 : 0) << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_OFFSET);
+	command_data_response |= ((uint16_t)negotiated_version << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_OFFSET);
 	__lbridge_frame_set_cmd_data(handshake_frame, command_data_response);
 	__lbridge_frame_set_payload_length(handshake_frame, negotiated_max_payload_size); // in the handshake only, the payload length indicates the size of the max data size field (2 bytes)
 	if (!__lbridge_send_data(p_server, (const uint8_t*)handshake_frame, sizeof(struct lbridge_frame) + (client_encryption_flag ? 12 : 0), (struct lbridge_connection*)p_connection))
@@ -1109,7 +1143,8 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 	// process handshake frame
 	p_connection->base.waiting_handshake = false;
 	p_connection->base.connected = true;
-	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: handshake completed");
+	p_connection->base.protocol_version = negotiated_version;
+	LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: handshake completed (version=%u)", (unsigned)negotiated_version);
 	return true;
 }
 
@@ -1470,25 +1505,25 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 #if defined(LBRIDGE_ENABLE_SECURE)
 						if (p_server->base.encryption_key_256bits != NULL)
 						{
-							if (connection->receive_buffer_used_size < 8)
+							if (connection->receive_buffer_used_size < 16)
 							{
 								__lbridge_server_remove_connection(p_server, i_connection, LBRIDGE_PROTOCOL_ERROR_INVALID_PAYLOAD_LENGTH);
 								goto lbl_next_connection;
 							}
-							uint32_t pure_data_size = connection->receive_buffer_used_size - 8;
+							uint32_t pure_data_size = connection->receive_buffer_used_size - 16;
 							uint8_t generated_tag[16];
 							// Decode data and process the tag
 							mbedtls_chachapoly_update(&connection->chachapoly_ctx, pure_data_size, connection->receive_buffer, connection->receive_buffer);
 							mbedtls_chachapoly_finish(&connection->chachapoly_ctx, generated_tag);
-							// Compare the first 8 bytes of the generated tag with the received tag
-							if (memcmp(connection->receive_buffer + pure_data_size, generated_tag, 8) != 0)
+							// Compare the full authentication tag with the received tag
+							if (memcmp(connection->receive_buffer + pure_data_size, generated_tag, 16) != 0)
 							{
 								__lbridge_server_remove_connection(p_server, i_connection, LBRIDGE_PROTOCOL_ERROR_AUTHENTICATION_FAILED);
 								goto lbl_next_connection;
 							}
 							connection->receive_buffer_used_size = pure_data_size;
 							// zero the remaining buffer for security
-							memset(connection->receive_buffer + pure_data_size, 0, 8);
+							memset(connection->receive_buffer + pure_data_size, 0, 16);
 							// increment receive counter
 							connection->base.counters.receive.value++;
 						}

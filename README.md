@@ -649,18 +649,22 @@ CMD_DATA (16 bits):
 
 #### HELLO Command (Opcode 0x0)
 
-Used during handshake to negotiate parameters.
+Used during handshake to negotiate parameters and protocol version.
 
 ```
 CMD_DATA for HELLO:
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| 0x0 |E|      Reserved         |
+| 0x0 |E|  Reserved   | VERSION |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-       ^
+  4b   1b    7 bits      4 bits
+       ^                    ^
+       |                    Protocol version (0-15)
        Encryption flag (1 = encryption requested)
 
 PAYLOAD_LEN field: max_frame_payload_size supported by sender
 ```
+
+The **VERSION** field carries the protocol version supported by the sender. During handshake, the negotiated version is `min(client_version, server_version)`. If the negotiated version is 0, the connection is rejected with `VERSION_MISMATCH`.
 
 If encryption is requested, 12 bytes of nonce follow the header.
 
@@ -705,10 +709,12 @@ The handshake establishes connection parameters and optionally sets up encryptio
 ```
 Client                                          Server
    |                                               |
-   |  HELLO (S=1,E=1,C=1,enc=0,plen=max_frame)    |
+   |  HELLO (S=1,E=1,C=1,enc=0,ver=V_C,           |
+   |         plen=max_frame)                        |
    |---------------------------------------------->|
    |                                               |
-   |  HELLO (S=1,E=1,C=1,enc=0,plen=negotiated)   |
+   |  HELLO (S=1,E=1,C=1,enc=0,ver=V_N,           |
+   |         plen=negotiated)                       |
    |<----------------------------------------------|
    |                                               |
    |            Connection Established             |
@@ -719,10 +725,12 @@ Client                                          Server
 ```
 Client                                          Server
    |                                               |
-   |  HELLO (enc=1,plen=max_frame) + client_nonce |
+   |  HELLO (enc=1,ver=V_C,plen=max_frame)        |
+   |         + client_nonce                         |
    |---------------------------------------------->|
    |                                               |
-   |  HELLO (enc=1,plen=negotiated) + server_nonce|
+   |  HELLO (enc=1,ver=V_N,plen=negotiated)        |
+   |         + server_nonce                         |
    |<----------------------------------------------|
    |                                               |
    |     shared_nonce = client_nonce XOR server_nonce
@@ -733,6 +741,8 @@ Client                                          Server
 ```
 
 The negotiated `max_frame_payload_size` is `min(client_max, server_max)`.
+
+The negotiated protocol version `V_N` is `min(V_C, V_S)` where `V_C` is the client version and `V_S` is the server version. If `V_N == 0`, the handshake is rejected.
 
 ---
 
@@ -793,6 +803,17 @@ LBridge uses **ChaCha20-Poly1305** AEAD encryption when enabled.
 - Both client and server must have the same 256-bit (32-byte) pre-shared key
 - Call `lbridge_activate_encryption(object, key)` before connecting
 
+#### Session Key Derivation
+
+The PSK is **never used directly** for encryption. During handshake, a unique session key is derived from the PSK and both random nonces using ChaCha20 as a PRF (two-pass derivation):
+
+```
+Pass 1: intermediate_key = ChaCha20(key=PSK, nonce=client_nonce, counter=0) over 32 zero bytes
+Pass 2: session_key     = ChaCha20(key=intermediate_key, nonce=server_nonce, counter=0) over 32 zero bytes
+```
+
+This consumes all 24 bytes of random nonce material (12 client + 12 server) and produces a unique 256-bit session key per connection. No additional dependency is needed — the derivation reuses ChaCha20, already present for encryption.
+
 #### Nonce Management
 
 - 12-byte (96-bit) nonce per message
@@ -813,21 +834,21 @@ This ensures frame headers cannot be tampered with.
 #### Ciphertext Format
 
 ```
-+------------------+---------------------+
-|  Encrypted Data  |  Auth Tag (8 bytes) |
-+------------------+---------------------+
++------------------+----------------------+
+|  Encrypted Data  |  Auth Tag (16 bytes) |
++------------------+----------------------+
 ```
 
-The authentication tag is truncated to 8 bytes (64 bits) for efficiency.
+The full 16-byte (128-bit) Poly1305 authentication tag is appended to the ciphertext.
 
 #### Encryption Flow
 
 ```
 1. Build all frame headers for the message
-2. Initialize ChaCha20-Poly1305 with key and nonce
+2. Initialize ChaCha20-Poly1305 with session key and nonce
 3. Add all headers to AAD
 4. Encrypt plaintext data
-5. Generate and truncate auth tag to 8 bytes
+5. Generate auth tag (16 bytes)
 6. Append tag to ciphertext
 7. Send frames with encrypted payload
 8. Increment nonce counter
@@ -844,13 +865,13 @@ Client                                          Server
    |                                               |
    |================ TCP CONNECT ==================|
    |                                               |
-   |  HELLO (max_frame=1024, enc=1, nonce_c)      |
+   |  HELLO (max_frame=1024, enc=1, ver=1, nonce_c)|
    |---------------------------------------------->|
    |                                               |
-   |  HELLO (max_frame=512, enc=1, nonce_s)       |
+   |  HELLO (max_frame=512, enc=1, ver=1, nonce_s)|
    |<----------------------------------------------|
    |                                               |
-   |  [negotiated: max_frame=512, encrypted]       |
+   |  [negotiated: max_frame=512, ver=1, encrypted]|
    |                                               |
    |  RPC #1 Request (rpc_id=0xABCD)              |
    |---------------------------------------------->|
@@ -935,6 +956,9 @@ Sent in CLOSE frames to indicate why a connection was terminated.
 | 9 | `LBRIDGE_PROTOCOL_ERROR_HANDSHAKE_ERROR` | Generic handshake error |
 | 10 | `LBRIDGE_PROTOCOL_ERROR_INVALID_COMMAND` | Unknown command opcode |
 | 11 | `LBRIDGE_PROTOCOL_ERROR_PAYLOAD_TOO_LARGE` | Payload exceeds max size |
+| 12 | `LBRIDGE_PROTOCOL_ERROR_INACTIVITY_TIMEOUT` | Client disconnected due to inactivity |
+| 13 | `LBRIDGE_PROTOCOL_ERROR_INVALID_RPC_ID` | Invalid RPC ID received |
+| 14 | `LBRIDGE_PROTOCOL_ERROR_VERSION_MISMATCH` | Protocol version mismatch (negotiated version is 0) |
 
 ---
 
@@ -942,14 +966,13 @@ Sent in CLOSE frames to indicate why a connection was terminated.
 
 1. **Pre-shared key** - LBridge does not perform key exchange. Keys must be provisioned out-of-band.
 
-2. **Truncated auth tag** - The 8-byte (64-bit) authentication tag provides less security than the standard 16-byte tag. This is a trade-off for efficiency in resource-constrained environments.
+2. **Authentication tag** - The full 16-byte (128-bit) Poly1305 authentication tag is used, providing standard-level forgery resistance (2^128).
 
-3. **No replay protection across sessions** - Nonces reset on reconnection. An attacker could replay captured messages from a previous session if the same key is used.
+3. **Replay protection** - Each session derives a unique encryption key from the PSK and random nonces exchanged during handshake (see [Session Key Derivation](#session-key-derivation)). Captured frames from a previous session cannot be replayed, since the session key will be different on each new connection. Within a session, the monotonic nonce counter prevents frame reuse.
 
 4. **No forward secrecy** - Compromise of the pre-shared key allows decryption of all past and future messages.
 
 For high-security applications, consider:
-- Using unique keys per session
 - Implementing key rotation
 - Adding session tokens to the handshake
 

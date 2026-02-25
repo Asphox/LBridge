@@ -75,10 +75,12 @@ struct lbridge_connection
 			};
 		}receive;
 	}counters;
+	uint8_t session_key[32]; // derived session key (PSK + nonces)
 #endif // LBRIDGE_ENABLE_SECURE
 	uint8_t connected : 1;
 	uint8_t waiting_handshake : 1;
-	uint8_t reserved : 6;
+	uint8_t protocol_version : 4;
+	uint8_t reserved : 2;
 };
 
 // asynchronous connection structure
@@ -215,10 +217,16 @@ struct lbridge_frame
 // handshake command
 // opcode (4 bits): 0x0
 // encryption (1 bit) : 0 = no encryption, 1 = encrypted
-// reserved (11 bits)
+// reserved (7 bits)
+// version (4 bits) : protocol version (0-15)
 #define LBRIDGE_FRAME_HEADER_CMD_HELLO_OPCODE 0x0
 #define LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_OFFSET 4
 #define LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_MASK (1U << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_OFFSET)
+#define LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_OFFSET 12
+#define LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_MASK (0xF << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_OFFSET)
+
+// Current protocol version
+#define LBRIDGE_PROTOCOL_VERSION 1
 
 // close connection command
 // opcode (4 bits): 0x1
@@ -356,6 +364,23 @@ static inline bool __lbridge_connection_need_encryption(const struct lbridge_con
 static inline uint8_t* __lbridge_get_encryption_key(const lbridge_object_t obj)
 {
 	return (uint8_t*)((struct lbridge_object*)obj)->encryption_key_256bits;
+}
+// Derives a per-session key from the PSK and both nonces using ChaCha20 as a PRF.
+// Two-pass derivation consumes the full 24 bytes of nonce material (12 client + 12 server).
+static inline void __lbridge_derive_session_key(
+	const uint8_t psk[32],
+	const uint8_t client_nonce[12],
+	const uint8_t server_nonce[12],
+	uint8_t session_key[32])
+{
+	uint8_t zeros[32] = {0};
+	uint8_t intermediate_key[32];
+	// Pass 1: derive with client_nonce
+	mbedtls_chacha20_crypt(psk, client_nonce, 0, 32, zeros, intermediate_key);
+	// Pass 2: re-derive with server_nonce
+	mbedtls_chacha20_crypt(intermediate_key, server_nonce, 0, 32, zeros, session_key);
+	// Wipe intermediate key
+	for (int i = 0; i < 32; i++) intermediate_key[i] = 0;
 }
 #endif // LBRIDGE_ENABLE_SECURE
 
