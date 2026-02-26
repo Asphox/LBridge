@@ -117,7 +117,7 @@ bool __lbridge_send_data_sequence_rpc(lbridge_object_t p_object, uint16_t rpc_id
 			goto lbl_return;
 		}
 		mbedtls_chachapoly_init(&chachapoly_ctx);
-		mbedtls_chachapoly_setkey(&chachapoly_ctx, p_connection->session_key);
+		mbedtls_chachapoly_setkey(&chachapoly_ctx, encryption_key);
 		mbedtls_chachapoly_starts(&chachapoly_ctx, p_connection->counters.send.full_nonce, MBEDTLS_CHACHAPOLY_ENCRYPT);
 	}
 #else
@@ -125,7 +125,7 @@ bool __lbridge_send_data_sequence_rpc(lbridge_object_t p_object, uint16_t rpc_id
 	const uint32_t size_with_encryption_tag = size;
 	if (size_with_encryption_tag > max_payload_size)
 	{
-		last_error = LBRIDGE_ERROR_BAD_ALLOC;
+		last_error = LBRIDGE_ERROR_TOO_MUCH_DATA;
 		goto lbl_return;
 	}
 #endif // LBRIDGE_ENABLE_SECURE
@@ -266,7 +266,7 @@ bool __lbridge_receive_data_sequence_rpc(lbridge_object_t p_object, uint8_t* out
 	if (encryption_needed)
 	{
 		mbedtls_chachapoly_init(&ctx);
-		mbedtls_chachapoly_setkey(&ctx, p_connection->session_key);
+		mbedtls_chachapoly_setkey(&ctx, encryption_key);
 		mbedtls_chachapoly_starts(&ctx, p_connection->counters.receive.full_nonce, MBEDTLS_CHACHAPOLY_DECRYPT);
 	}
 #endif
@@ -646,7 +646,7 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 		return false;
 	}
 
-	if(expected_size < received_size)
+	if(received_size < expected_size)
 	{
 		// invalid size
 		__lbridge_object_set_error(p_client, LBRIDGE_ERROR_HANDSHAKE_FAILED);
@@ -664,6 +664,14 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 	command_data = __lbridge_frame_get_cmd_data(handshake_frame);
 	const uint8_t opcode = (uint8_t)((command_data & LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_MASK) >> LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_OFFSET);
 	if (opcode != LBRIDGE_FRAME_HEADER_CMD_HELLO_OPCODE)
+	{
+		__lbridge_object_set_error(p_client, LBRIDGE_ERROR_HANDSHAKE_FAILED);
+		return false;
+	}
+
+	// anti-downgrade: verify server echoed the same encryption flag we sent
+	const bool server_encryption_flag = (command_data & LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_MASK) != 0;
+	if (server_encryption_flag != encryption_needed)
 	{
 		__lbridge_object_set_error(p_client, LBRIDGE_ERROR_HANDSHAKE_FAILED);
 		return false;
@@ -691,13 +699,6 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 	// if encryption is needed, xor the server nonce with client nonce to create the final nonce
 	if (encryption_needed)
 	{
-		// derive session key from PSK + both nonces (before XOR overwrites them)
-		__lbridge_derive_session_key(
-			p_client->base.encryption_key_256bits,
-			p_client->connection.counters.send.full_nonce,  // client nonce
-			handshake_frame->data,                          // server nonce
-			p_client->connection.session_key);
-
 		for(int i = 0; i < 12; i++)
 		{
 			p_client->connection.counters.send.full_nonce[i] ^= handshake_frame->data[i];
@@ -1095,12 +1096,6 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INTERNAL);
 			return false;
 		}
-		// derive session key from PSK + both nonces (before XOR overwrites them)
-		__lbridge_derive_session_key(
-			p_server->base.encryption_key_256bits,
-			raw_data + sizeof(struct lbridge_frame),  // client nonce
-			server_nonce,
-			p_connection->base.session_key);
 
 		for (uint8_t i = 0; i < 12; ++i)
 		{
@@ -1117,9 +1112,9 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 		}
 
 		mbedtls_chachapoly_init(&p_connection->chachapoly_ctx);
-		mbedtls_chachapoly_setkey(&p_connection->chachapoly_ctx, p_connection->base.session_key);
+		mbedtls_chachapoly_setkey(&p_connection->chachapoly_ctx, p_server->base.encryption_key_256bits);
 #else
-		__lbridge_close(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_ENCRYPTION_NOT_SUPPORTED_ON_SERVER);
+		__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_ENCRYPTION_NOT_SUPPORTED_ON_SERVER);
 		return false;
 #endif // LBRIDGE_ENABLE_SECURE
 	}
