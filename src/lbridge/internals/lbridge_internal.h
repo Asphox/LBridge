@@ -53,27 +53,12 @@ struct lbridge_connection
 		uint8_t		as_bytes[sizeof(void*)];
 	};
 #if defined(LBRIDGE_ENABLE_SECURE)
-	// encryption counters (nonces)
+	// encryption nonce state (reconstructed as [counter_8bytes | nonce_base_4bytes] before use)
 	struct
 	{
-		union
-		{
-			uint8_t full_nonce[12];
-			struct
-			{
-				uint64_t value;
-				uint32_t reserved_lsb_bytes;
-			};
-		}send;
-		union
-		{
-			uint8_t full_nonce[12];
-			struct
-			{
-				uint64_t value;
-				uint32_t reserved_lsb_bytes;
-			};
-		}receive;
+		uint64_t send_counter;
+		uint64_t receive_counter;
+		uint32_t nonce_base; // upper 4 bytes of the 12-byte nonce (shared between send and receive)
 	}counters;
 #endif // LBRIDGE_ENABLE_SECURE
 	uint8_t connected : 1;
@@ -158,11 +143,11 @@ struct lbridge_object
 #if defined(LBRIDGE_ENABLE_SECURE)
 	const uint8_t*				encryption_key_256bits;
 #endif // LBRIDGE_ENABLE_SECURE
-	enum lbridge_error_code		last_error;
-	enum lbridge_type			type;
 	int32_t 					timeout_ms;
 	uint32_t					max_payload_size;
 	uint16_t					max_frame_payload_size;
+	uint8_t						last_error;  // enum lbridge_error_code (0-255)
+	uint8_t						type;        // enum lbridge_type (0-5)
 	uint8_t						sequence_max_nb_frames; // max number of frames in a sequence (for fragmentation)
 	uint8_t 					object_type;
 };
@@ -315,7 +300,7 @@ static inline void __lbridge_frame_set_payload_length(struct lbridge_frame* fram
 
 static inline void __lbridge_object_set_error(lbridge_object_t obj, enum lbridge_error_code error_code)
 {
-	((struct lbridge_object*)obj)->last_error = error_code;
+	((struct lbridge_object*)obj)->last_error = (uint8_t)error_code;
 #if defined(LBRIDGE_ENABLE_LOG_ERROR)
 	if (error_code != LBRIDGE_ERROR_NONE)
 	{
@@ -336,12 +321,12 @@ static inline void __lbridge_object_set_error(lbridge_object_t obj, enum lbridge
 
 static inline enum lbridge_error_code __lbridge_object_get_error(const lbridge_object_t obj)
 {
-	return ((struct lbridge_object*)obj)->last_error;
+	return (enum lbridge_error_code)((struct lbridge_object*)obj)->last_error;
 }
 
 static inline enum lbridge_type __lbridge_object_get_type(const lbridge_object_t obj)
 {
-	return ((struct lbridge_object*)obj)->type;
+	return (enum lbridge_type)((struct lbridge_object*)obj)->type;
 }
 
 static inline uint16_t __lbridge_object_get_max_frame_payload_size(const lbridge_object_t obj)
@@ -358,7 +343,12 @@ static inline uint32_t __lbridge_object_get_max_payload_size(const lbridge_objec
 static inline bool __lbridge_connection_need_encryption(const struct lbridge_connection* connection)
 {
 	// if we have a nonce, we have encryption
-	return (connection->counters.receive.value != 0 || connection->counters.send.value != 0 || connection->counters.receive.reserved_lsb_bytes != 0 || connection->counters.send.reserved_lsb_bytes != 0);
+	return (connection->counters.send_counter != 0 || connection->counters.receive_counter != 0 || connection->counters.nonce_base != 0);
+}
+static inline void __lbridge_build_nonce(uint64_t counter, uint32_t nonce_base, uint8_t out_nonce[12])
+{
+	memcpy(out_nonce, &counter, 8);
+	memcpy(out_nonce + 8, &nonce_base, 4);
 }
 static inline uint8_t* __lbridge_get_encryption_key(const lbridge_object_t obj)
 {

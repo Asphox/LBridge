@@ -118,7 +118,9 @@ bool __lbridge_send_data_sequence_rpc(lbridge_object_t p_object, uint16_t rpc_id
 		}
 		mbedtls_chachapoly_init(&chachapoly_ctx);
 		mbedtls_chachapoly_setkey(&chachapoly_ctx, encryption_key);
-		mbedtls_chachapoly_starts(&chachapoly_ctx, p_connection->counters.send.full_nonce, MBEDTLS_CHACHAPOLY_ENCRYPT);
+		uint8_t send_nonce[12];
+		__lbridge_build_nonce(p_connection->counters.send_counter, p_connection->counters.nonce_base, send_nonce);
+		mbedtls_chachapoly_starts(&chachapoly_ctx, send_nonce, MBEDTLS_CHACHAPOLY_ENCRYPT);
 	}
 #else
 	const bool encryption_needed = false;
@@ -241,7 +243,7 @@ lbl_return:
 		context->params.fp_free(encrypted_data);
 		if (result)
 		{
-			p_connection->counters.send.value++;
+			p_connection->counters.send_counter++;
 		}
 	}
 #endif // LBRIDGE_ENABLE_SECURE
@@ -267,7 +269,9 @@ bool __lbridge_receive_data_sequence_rpc(lbridge_object_t p_object, uint8_t* out
 	{
 		mbedtls_chachapoly_init(&ctx);
 		mbedtls_chachapoly_setkey(&ctx, encryption_key);
-		mbedtls_chachapoly_starts(&ctx, p_connection->counters.receive.full_nonce, MBEDTLS_CHACHAPOLY_DECRYPT);
+		uint8_t recv_nonce[12];
+		__lbridge_build_nonce(p_connection->counters.receive_counter, p_connection->counters.nonce_base, recv_nonce);
+		mbedtls_chachapoly_starts(&ctx, recv_nonce, MBEDTLS_CHACHAPOLY_DECRYPT);
 	}
 #endif
 
@@ -388,7 +392,7 @@ lbl_return:
 		mbedtls_chachapoly_free(&ctx);
 		if (result)
 		{
-			p_connection->counters.receive.value++;
+			p_connection->counters.receive_counter++;
 		}
 	}
 #endif
@@ -620,16 +624,16 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 	}
 	// if encryption is needed, server expects a 12 bytes nonce in the payload
 #if defined(LBRIDGE_ENABLE_SECURE)
+	uint8_t client_nonce[12];
 	if (encryption_needed)
 	{
 		struct lbridge_context* context = __lbridge_object_get_context(p_client);
 		// generate random nonce (12 bytes)
-		if (!context->params.fp_generate_nonce(context, p_client->connection.counters.receive.full_nonce))
+		if (!context->params.fp_generate_nonce(context, client_nonce))
 		{
 			return false;
 		}
-		memcpy(p_client->connection.counters.send.full_nonce, p_client->connection.counters.receive.full_nonce, 12);
-		if (!__lbridge_send_data(p_client, p_client->connection.counters.send.full_nonce, sizeof(p_client->connection.counters.send.full_nonce), &p_client->connection))
+		if (!__lbridge_send_data(p_client, client_nonce, 12, &p_client->connection))
 		{
 			return false;
 		}
@@ -699,13 +703,15 @@ bool __lbridge_client_handshake(lbridge_client_t p_client)
 	// if encryption is needed, xor the server nonce with client nonce to create the final nonce
 	if (encryption_needed)
 	{
+		uint8_t xored_nonce[12];
 		for(int i = 0; i < 12; i++)
 		{
-			p_client->connection.counters.send.full_nonce[i] ^= handshake_frame->data[i];
-			p_client->connection.counters.receive.full_nonce[i] = p_client->connection.counters.send.full_nonce[i];
+			xored_nonce[i] = client_nonce[i] ^ handshake_frame->data[i];
 		}
-		// inverts the 64-th bit of nonce_counter_receive to differenciate both counters
-		p_client->connection.counters.receive.value ^= (1ULL << 63);
+		memcpy(&p_client->connection.counters.send_counter, xored_nonce, 8);
+		memcpy(&p_client->connection.counters.nonce_base, xored_nonce + 8, 4);
+		// inverts the 64-th bit of receive_counter to differenciate both counters
+		p_client->connection.counters.receive_counter = p_client->connection.counters.send_counter ^ (1ULL << 63);
 	}
 #endif // LBRIDGE_ENABLE_SECURE
 	p_client->connection.connected = true;
@@ -1097,14 +1103,16 @@ bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connec
 			return false;
 		}
 
+		uint8_t xored_nonce[12];
 		for (uint8_t i = 0; i < 12; ++i)
 		{
 			// we XOR client nonce and server nonce to create shared nonce
-			p_connection->base.counters.send.full_nonce[i] = server_nonce[i] ^ raw_data[sizeof(struct lbridge_frame) + i];
-			p_connection->base.counters.receive.full_nonce[i] = p_connection->base.counters.send.full_nonce[i];
+			xored_nonce[i] = server_nonce[i] ^ raw_data[sizeof(struct lbridge_frame) + i];
 		}
-		// inverts the 64-th bit of nonce_counter_receive to differenciate both counters
-		p_connection->base.counters.send.value ^= (1ULL << 63);
+		memcpy(&p_connection->base.counters.receive_counter, xored_nonce, 8);
+		memcpy(&p_connection->base.counters.nonce_base, xored_nonce + 8, 4);
+		// inverts the 64-th bit of send_counter to differenciate both counters
+		p_connection->base.counters.send_counter = p_connection->base.counters.receive_counter ^ (1ULL << 63);
 		// prepare the server nonce to be sent to client
 		for (uint8_t i = 0; i < 12; ++i)
 		{
@@ -1461,7 +1469,9 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 						// if new sequence, start cha-cha-poly context
 						if (connection->receive_buffer_used_size == 0)
 						{
-							mbedtls_chachapoly_starts(&connection->chachapoly_ctx, connection->base.counters.receive.full_nonce, MBEDTLS_CHACHAPOLY_DECRYPT);
+							uint8_t recv_nonce[12];
+							__lbridge_build_nonce(connection->base.counters.receive_counter, connection->base.counters.nonce_base, recv_nonce);
+							mbedtls_chachapoly_starts(&connection->chachapoly_ctx, recv_nonce, MBEDTLS_CHACHAPOLY_DECRYPT);
 						}
 
 						// add header to AAD
@@ -1520,7 +1530,7 @@ bool LBRIDGE_API lbridge_server_update(lbridge_server_t p_server)
 							// zero the remaining buffer for security
 							memset(connection->receive_buffer + pure_data_size, 0, 16);
 							// increment receive counter
-							connection->base.counters.receive.value++;
+							connection->base.counters.receive_counter++;
 						}
 #endif // LBRIDGE_ENABLE_SECURE
 
