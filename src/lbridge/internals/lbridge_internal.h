@@ -8,6 +8,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 #include "../lbridge.h"
 #include "../lbridge_custom_backend.h"
 #if defined(LBRIDGE_ENABLE_SECURE)
