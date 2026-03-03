@@ -1142,6 +1142,7 @@ extern "C" {
 		__lbridge_frame_set_payload_length(handshake_frame, negotiated_max_payload_size); // in the handshake only, the payload length indicates the size of the max data size field (2 bytes)
 		if (!__lbridge_send_data(p_server, (const uint8_t*)handshake_frame, sizeof(struct lbridge_frame) + (client_encryption_flag ? 12 : 0), (struct lbridge_connection*)p_connection))
 		{
+			LBRIDGE_LOG_ERROR(__lbridge_object_get_context(p_server), "server: can't send handshake response");
 			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_HANDSHAKE_ERROR);
 			return false;
 		}
