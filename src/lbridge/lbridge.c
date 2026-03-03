@@ -1067,6 +1067,7 @@ extern "C" {
 		const uint8_t negotiated_version = (uint8_t)min(client_version, LBRIDGE_PROTOCOL_VERSION);
 		if (negotiated_version == 0)
 		{
+			LBRIDGE_LOG_ERROR(__lbridge_object_get_context(p_server), "server: version mismatch (client_version=%u)", client_version); 
 			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_VERSION_MISMATCH);
 			return false;
 		}
