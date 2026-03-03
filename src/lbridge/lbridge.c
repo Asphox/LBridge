@@ -1027,26 +1027,41 @@ extern "C" {
 	bool __lbridge_server_handshake(lbridge_server_t p_server, struct lbridge_connection_async* p_connection)
 	{
 		// process handshake (size of handshake frame is 4 bytes + optional 12 bytes for nonce if encryption requested)
-		uint8_t raw_data[sizeof(struct lbridge_frame) + 12] = { 0 };
-		struct lbridge_frame* handshake_frame = (struct lbridge_frame*)raw_data;
-		// wait for server response header
-		memset(raw_data, 0, sizeof(raw_data));
-		uint32_t received_size = 0;
-		// 4 bytes header
-		if (!__lbridge_receive_data(p_server, (uint8_t*)handshake_frame, sizeof(struct lbridge_frame), &received_size, (struct lbridge_connection*)p_connection, 0))
+		// current_frame_header is reused to persist the HELLO header across non-blocking calls (0 = not yet received)
+		struct lbridge_frame handshake_frame_storage;
+		struct lbridge_frame* handshake_frame = &handshake_frame_storage;
+		uint8_t response_buffer[sizeof(struct lbridge_frame) + 12];
+		struct lbridge_frame* response_frame = (struct lbridge_frame*)response_buffer;
+
+		// Phase 1: receive the 4-byte header (only if not already received)
+		if (p_connection->current_frame_header == 0)
 		{
-			return false;
+			uint32_t received_size = 0;
+			if (!__lbridge_receive_data(p_server, (uint8_t*)handshake_frame, sizeof(struct lbridge_frame), &received_size, (struct lbridge_connection*)p_connection, 0))
+			{
+				return false;
+			}
+			if (received_size == 0)
+			{
+				return true; // no data yet
+			}
+			p_connection->current_frame_header = handshake_frame->header;
 		}
-		if (received_size == 0)
+		else
 		{
-			return true; // no data yet
+			handshake_frame->header = p_connection->current_frame_header;
+
+			// hanshake frame must be start=1, end=1, cmd=1
+			if (!__lbridge_frame_is_start(handshake_frame) || !__lbridge_frame_is_end(handshake_frame) || !__lbridge_frame_is_cmd(handshake_frame))
+			{
+				LBRIDGE_LOG_ERROR(__lbridge_object_get_context(p_server), "server: invalid handshake frame flags");
+				__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INVALID_FRAME_FLAG);
+				return false;
+			}
+
+			LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: handshake request received");
 		}
-		// hanshake frame must be start=1, end=1, cmd=1
-		if (!__lbridge_frame_is_start(handshake_frame) || !__lbridge_frame_is_end(handshake_frame) || !__lbridge_frame_is_cmd(handshake_frame))
-		{
-			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INVALID_FRAME_FLAG);
-			return false;
-		}
+
 		// handshake frame opcode must be HELLO
 		const uint16_t cmd_data = __lbridge_frame_get_cmd_data(handshake_frame);
 		const uint8_t opcode = (uint8_t)((cmd_data & LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_MASK) >> LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_OFFSET);
@@ -1055,7 +1070,6 @@ extern "C" {
 			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_INVALID_OPCODE_HANDSHAKE);
 			return false;
 		}
-		LBRIDGE_LOG_INFO(__lbridge_object_get_context(p_server), "server: handshake request received");
 
 		// next 2 bytes are max payload size per frame supported by client
 		// the negotiated value is the minimum between server and client capabilities
@@ -1085,15 +1099,24 @@ extern "C" {
 				return false;
 			}
 			// 12 bytes of nonce in payload
-			if (!__lbridge_receive_data(p_server, (uint8_t*)handshake_frame + sizeof(struct lbridge_frame), 12, &received_size, (struct lbridge_connection*)p_connection, 0))
+			uint8_t client_nonce[12];
+			uint32_t received_size = 0;
+			if (!__lbridge_receive_data(p_server, client_nonce, 12, &received_size, (struct lbridge_connection*)p_connection, 0))
 			{
 				LBRIDGE_LOG_ERROR(__lbridge_object_get_context(p_server), "server: missing nonce in payload");
 				__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_HANDSHAKE_ERROR);
 				return false;
 			}
+			if (received_size == 0)
+			{
+				return true; // nonce not yet available, header already saved in current_frame_header
+			}
 			if (received_size < 12)
 			{
-				return true; // no data yet
+				// partial nonce: bytes already consumed from TCP buffer, unrecoverable
+				LBRIDGE_LOG_ERROR(__lbridge_object_get_context(p_server), "server: partial nonce received (%u/12)", received_size);
+				__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_HANDSHAKE_ERROR);
+				return false;
 			}
 
 			// generate server nonce (12 bytes)
@@ -1111,18 +1134,13 @@ extern "C" {
 			for (uint8_t i = 0; i < 12; ++i)
 			{
 				// we XOR client nonce and server nonce to create shared nonce
-				xored_nonce[i] = server_nonce[i] ^ raw_data[sizeof(struct lbridge_frame) + i];
+				xored_nonce[i] = server_nonce[i] ^ client_nonce[i];
 			}
 			memcpy(&p_connection->base.counters.receive_counter, xored_nonce, 8);
 			memcpy(&p_connection->base.counters.nonce_base, xored_nonce + 8, 4);
 			// inverts the 64-th bit of send_counter to differenciate both counters
 			p_connection->base.counters.send_counter = p_connection->base.counters.receive_counter ^ (1ULL << 63);
-			// prepare the server nonce to be sent to client
-			for (uint8_t i = 0; i < 12; ++i)
-			{
-				raw_data[sizeof(struct lbridge_frame) + i] = server_nonce[i];
-			}
-
+			memcpy(response_buffer + sizeof(struct lbridge_frame), server_nonce, 12);
 			mbedtls_chachapoly_init(&p_connection->chachapoly_ctx);
 			mbedtls_chachapoly_setkey(&p_connection->chachapoly_ctx, p_server->base.encryption_key_256bits);
 #else
@@ -1133,16 +1151,16 @@ extern "C" {
 		}
 
 		// sends handshake response
-		__lbridge_frame_set_start(handshake_frame, true);
-		__lbridge_frame_set_end(handshake_frame, true);
-		__lbridge_frame_set_cmd(handshake_frame, true);
+		__lbridge_frame_set_start(response_frame, true);
+		__lbridge_frame_set_end(response_frame, true);
+		__lbridge_frame_set_cmd(response_frame, true);
 		uint16_t command_data_response = 0;
 		command_data_response |= ((uint16_t)LBRIDGE_FRAME_HEADER_CMD_HELLO_OPCODE << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_OFFSET);
 		command_data_response |= ((uint16_t)(client_encryption_flag ? 1 : 0) << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_ENCRYPTION_FLAG_OFFSET);
 		command_data_response |= ((uint16_t)negotiated_version << LBRIDGE_FRAME_HEADER_CMD_DATA_OPCODE_HELLO_VERSION_OFFSET);
-		__lbridge_frame_set_cmd_data(handshake_frame, command_data_response);
-		__lbridge_frame_set_payload_length(handshake_frame, negotiated_max_payload_size); // in the handshake only, the payload length indicates the size of the max data size field (2 bytes)
-		if (!__lbridge_send_data(p_server, (const uint8_t*)handshake_frame, sizeof(struct lbridge_frame) + (client_encryption_flag ? 12 : 0), (struct lbridge_connection*)p_connection))
+		__lbridge_frame_set_cmd_data(response_frame, command_data_response);
+		__lbridge_frame_set_payload_length(response_frame, negotiated_max_payload_size); // in the handshake only, the payload length indicates the size of the max data size field (2 bytes)
+		if (!__lbridge_send_data(p_server, response_buffer, sizeof(struct lbridge_frame) + (client_encryption_flag ? 12 : 0), (struct lbridge_connection*)p_connection))
 		{
 			LBRIDGE_LOG_ERROR(__lbridge_object_get_context(p_server), "server: can't send handshake response");
 			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_HANDSHAKE_ERROR);
@@ -1150,6 +1168,7 @@ extern "C" {
 		}
 
 		// process handshake frame
+		p_connection->current_frame_header = 0; // reset: reused as sentinel by the data path
 		p_connection->base.waiting_handshake = false;
 		p_connection->base.connected = true;
 		p_connection->base.protocol_version = negotiated_version;
