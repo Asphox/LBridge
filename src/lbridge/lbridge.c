@@ -1126,6 +1126,7 @@ extern "C" {
 			mbedtls_chachapoly_init(&p_connection->chachapoly_ctx);
 			mbedtls_chachapoly_setkey(&p_connection->chachapoly_ctx, p_server->base.encryption_key_256bits);
 #else
+			LBRIDGE_LOG_ERROR(__lbridge_object_get_context(p_server), "server: encryption not supported");
 			__lbridge_close_connection(p_server, (struct lbridge_connection*)p_connection, LBRIDGE_PROTOCOL_ERROR_ENCRYPTION_NOT_SUPPORTED_ON_SERVER);
 			return false;
 #endif // LBRIDGE_ENABLE_SECURE
