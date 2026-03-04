@@ -111,7 +111,7 @@ enum lbridge_error_code
 	LBRIDGE_ERROR_HANDSHAKE_FAILED,      /**< Protocol handshake with remote peer failed. */
 	LBRIDGE_ERROR_TOO_MUCH_DATA,         /**< Payload size exceeds the maximum allowed size. */
 	LBRIDGE_ERROR_AUTHENTICATION_FAILED, /**< Encryption authentication tag verification failed. */
-	LRBDIGE_ERROR_PROTOCOL_VIOLATION,    /**< Protocol violation detected. */
+	LBRIDGE_ERROR_PROTOCOL_VIOLATION,    /**< Protocol violation detected. */
 	LBRIDGE_ERROR_INVALID_RPC_ID,       /**< Invalid RPC ID specified. */
 	LBRIDGE_ERROR_UNKNOWN = 255,         /**< Unknown or unspecified error. */
 };

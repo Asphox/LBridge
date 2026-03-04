@@ -13,6 +13,7 @@ extern "C" {
 #include "../lbridge_custom_backend.h"
 #if defined(LBRIDGE_ENABLE_SECURE)
 #include "../mbedtls-chachapoly/mbedtls/chachapoly.h"
+#include "../mbedtls-chachapoly/mbedtls/constant_time.h"
 #endif // LBRIDGE_ENABLE_SECURE
 
 #define LBRIDGE_WRITE_BIT_U32(var, bit, state) \
@@ -149,7 +150,6 @@ struct lbridge_object
 	uint16_t					max_frame_payload_size;
 	uint8_t						last_error;  // enum lbridge_error_code (0-255)
 	uint8_t						type;        // enum lbridge_type (0-5)
-	uint8_t						sequence_max_nb_frames; // max number of frames in a sequence (for fragmentation)
 	uint8_t 					object_type;
 };
 

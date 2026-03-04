@@ -1000,6 +1000,59 @@ TEST_CASE("RPC call - with encryption")
     lbridge_context_destroy(server_ctx);
 }
 
+TEST_CASE("RPC call - with encryption, exact buffer size (no room for tag)")
+{
+    // Regression test: lbridge_client_call_rpc must succeed when max_out_size equals
+    // the exact data size (no extra space for the 16-byte Poly1305 tag).
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    static const uint8_t test_key[32] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F
+    };
+
+    struct lbridge_context_params params = { 0 };
+    params.fp_generate_nonce = test_generate_nonce;
+    params.fp_get_time_ms = get_time_ms_impl;
+
+    lbridge_context_t server_ctx = lbridge_context_create(&params);
+    REQUIRE(server_ctx != nullptr);
+
+    lbridge_server_t server = lbridge_server_create(server_ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD, echo_rpc_callback);
+    REQUIRE(server != nullptr);
+
+    lbridge_activate_encryption(server, test_key);
+    REQUIRE(server_listen_tcp_with_retry(server, TEST_HOST, TEST_PORT, 10));
+
+    ScopedServerThread server_thread(server);
+
+    TestContext ctx;
+    lbridge_client_t client = lbridge_client_create(ctx, MAX_FRAME_PAYLOAD, MAX_PAYLOAD);
+    REQUIRE(client != nullptr);
+
+    lbridge_activate_encryption(client, test_key);
+    REQUIRE(lbridge_client_connect_tcp(client, TEST_HOST, TEST_PORT));
+
+    const char* test_message = "Exact!";
+    const uint32_t msg_len = (uint32_t)strlen(test_message) + 1;
+
+    uint8_t buffer[64];
+    memcpy(buffer, test_message, msg_len);
+    uint32_t size = msg_len;
+
+    // Pass max_out_size == msg_len: no room for the tag in the caller's view
+    bool success = lbridge_client_call_rpc(client, RPC_ECHO, buffer, &size, msg_len);
+    CHECK(success);
+    CHECK(size == msg_len);
+    CHECK(strcmp((const char*)buffer, test_message) == 0);
+
+    lbridge_client_destroy(client);
+    server_thread.stop();
+    lbridge_server_destroy(server);
+    lbridge_context_destroy(server_ctx);
+}
+
 TEST_CASE("RPC call - encryption key mismatch")
 {
     static const uint8_t server_key[32] = {

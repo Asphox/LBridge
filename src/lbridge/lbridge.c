@@ -4,7 +4,6 @@ extern "C" {
 
 #include <stdlib.h>
 #include <stdbool.h>
-#include <memory.h>
 
 #include "internals/lbridge_internal.h"
 
@@ -277,6 +276,9 @@ extern "C" {
 
 		bool is_end_frame = false;
 		uint32_t current_offset = 0;
+#if defined(LBRIDGE_ENABLE_SECURE)
+		uint8_t received_tag[16] = { 0 };
+#endif
 
 		while (!is_end_frame)
 		{
@@ -323,13 +325,26 @@ extern "C" {
 			const uint16_t frame_payload_len = __lbridge_frame_get_payload_length(&header);
 			is_end_frame = __lbridge_frame_is_end(&header);
 
-			if (current_offset + frame_payload_len > max_out_size)
+			// in encrypted mode, the end frame carries data_part + 16-byte tag at the end
+			// effective_payload_len is the useful data size (tag excluded)
+#if defined(LBRIDGE_ENABLE_SECURE)
+			const uint16_t effective_payload_len = (encryption_needed && is_end_frame) ? frame_payload_len - 16 : frame_payload_len;
+			if (encryption_needed && is_end_frame && frame_payload_len < 16)
+			{
+				// tag cannot span frame boundaries with this implementation
+				goto lbl_return;
+			}
+#else
+			const uint16_t effective_payload_len = frame_payload_len;
+#endif
+
+			if (current_offset + effective_payload_len > max_out_size)
 			{
 				last_error = LBRIDGE_ERROR_TOO_MUCH_DATA;
 				goto lbl_return;
 			}
 
-			// Update AAD with the header for decryption if needed 
+			// Update AAD with the header for decryption if needed
 #if defined(LBRIDGE_ENABLE_SECURE)
 			if (encryption_needed)
 			{
@@ -337,43 +352,44 @@ extern "C" {
 			}
 #endif
 
-			// copy payload to output buffer
-			if (frame_payload_len > 0)
+			// copy useful payload to output buffer
+			if (effective_payload_len > 0)
 			{
 				uint32_t payload_recv = 0;
-				const bool payload_read_success = __lbridge_receive_data(p_object, out_data + current_offset, frame_payload_len, &payload_recv, p_connection, LBRIDGE_RECEIVE_BLOCKING);
-				if (!payload_read_success || payload_recv != frame_payload_len)
-				{
+				if (!__lbridge_receive_data(p_object, out_data + current_offset, effective_payload_len, &payload_recv, p_connection, LBRIDGE_RECEIVE_BLOCKING) || payload_recv != effective_payload_len)
 					goto lbl_return;
-				}
-				current_offset += frame_payload_len;
+				current_offset += effective_payload_len;
 			}
+
+			// read the 16-byte tag into local buffer (end frame, encrypted only)
+#if defined(LBRIDGE_ENABLE_SECURE)
+			if (encryption_needed && is_end_frame)
+			{
+				uint32_t tag_recv = 0;
+				if (!__lbridge_receive_data(p_object, received_tag, 16, &tag_recv, p_connection, LBRIDGE_RECEIVE_BLOCKING) || tag_recv != 16)
+					goto lbl_return;
+			}
+#endif
 		}
 
-		// Currently, out_data contains the full received data (+ 16 bytes tag if encrypted)
+		// out_data contains pure decrypted data; received_tag holds the authentication tag
 #if defined(LBRIDGE_ENABLE_SECURE)
 		if (encryption_needed)
 		{
-			if (current_offset < 16)
-			{
-				goto lbl_return;
-			}
-
-			uint32_t pure_data_size = current_offset - 16;
 			uint8_t generated_tag[16];
 
-			// Decode data and process the tag
-			mbedtls_chachapoly_update(&ctx, pure_data_size, out_data, out_data);
+			// Decrypt data in-place and generate expected tag
+			mbedtls_chachapoly_update(&ctx, current_offset, out_data, out_data);
 			mbedtls_chachapoly_finish(&ctx, generated_tag);
 
-			// Compare the full authentication tag with the received tag
-			if (memcmp(out_data + pure_data_size, generated_tag, 16) != 0)
+			// Compare received tag with generated tag
+			if (mbedtls_ct_memcmp(received_tag, generated_tag, 16) != 0)
 			{
 				last_error = LBRIDGE_ERROR_AUTHENTICATION_FAILED;
 				goto lbl_return;
 			}
 
-			*total_received_size = pure_data_size;
+			*total_received_size = current_offset;
 		}
 		else
 		{
@@ -1030,7 +1046,7 @@ extern "C" {
 		// current_frame_header is reused to persist the HELLO header across non-blocking calls (0 = not yet received)
 		struct lbridge_frame handshake_frame_storage;
 		struct lbridge_frame* handshake_frame = &handshake_frame_storage;
-		uint8_t response_buffer[sizeof(struct lbridge_frame) + 12];
+		uint8_t response_buffer[sizeof(struct lbridge_frame) + 12] = { 0 };
 		struct lbridge_frame* response_frame = (struct lbridge_frame*)response_buffer;
 
 		// Phase 1: receive the 4-byte header (only if not already received)
@@ -1546,7 +1562,7 @@ extern "C" {
 								mbedtls_chachapoly_update(&connection->chachapoly_ctx, pure_data_size, connection->receive_buffer, connection->receive_buffer);
 								mbedtls_chachapoly_finish(&connection->chachapoly_ctx, generated_tag);
 								// Compare the full authentication tag with the received tag
-								if (memcmp(connection->receive_buffer + pure_data_size, generated_tag, 16) != 0)
+								if (mbedtls_ct_memcmp(connection->receive_buffer + pure_data_size, generated_tag, 16) != 0)
 								{
 									__lbridge_server_remove_connection(p_server, i_connection, LBRIDGE_PROTOCOL_ERROR_AUTHENTICATION_FAILED);
 									goto lbl_next_connection;

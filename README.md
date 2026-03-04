@@ -803,23 +803,16 @@ LBridge uses **ChaCha20-Poly1305** AEAD encryption when enabled.
 - Both client and server must have the same 256-bit (32-byte) pre-shared key
 - Call `lbridge_activate_encryption(object, key)` before connecting
 
-#### Session Key Derivation
-
-The PSK is **never used directly** for encryption. During handshake, a unique session key is derived from the PSK and both random nonces using ChaCha20 as a PRF (two-pass derivation):
-
-```
-Pass 1: intermediate_key = ChaCha20(key=PSK, nonce=client_nonce, counter=0) over 32 zero bytes
-Pass 2: session_key     = ChaCha20(key=intermediate_key, nonce=server_nonce, counter=0) over 32 zero bytes
-```
-
-This consumes all 24 bytes of random nonce material (12 client + 12 server) and produces a unique 256-bit session key per connection. No additional dependency is needed — the derivation reuses ChaCha20, already present for encryption.
-
 #### Nonce Management
 
-- 12-byte (96-bit) nonce per message
-- Nonce = `base_nonce || counter` where counter is 64-bit
-- Send and receive use different counters (bit 63 flipped)
-- Counter increments after each successful message
+The PSK is used directly as the ChaCha20-Poly1305 key. Nonce uniqueness is guaranteed per-connection through the handshake nonce exchange:
+
+- During handshake, client and server each generate 12 random bytes
+- The two nonces are XOR'd together to form a shared 12-byte base nonce
+- The base nonce is split into a 64-bit counter seed and a 32-bit nonce suffix: `nonce = counter_64bit || suffix_32bit`
+- Send and receive directions use independent counters (bit 63 flipped on the initial seed)
+- Each counter increments monotonically after each successful message, ensuring no nonce reuse within a session
+- The random base nonce ensures no nonce reuse across sessions
 
 #### Authenticated Data
 
@@ -845,7 +838,7 @@ The full 16-byte (128-bit) Poly1305 authentication tag is appended to the cipher
 
 ```
 1. Build all frame headers for the message
-2. Initialize ChaCha20-Poly1305 with session key and nonce
+2. Initialize ChaCha20-Poly1305 with PSK and current nonce
 3. Add all headers to AAD
 4. Encrypt plaintext data
 5. Generate auth tag (16 bytes)
@@ -934,7 +927,7 @@ Client                                          Server
 | 14 | `LBRIDGE_ERROR_HANDSHAKE_FAILED` | Handshake failed |
 | 15 | `LBRIDGE_ERROR_TOO_MUCH_DATA` | Payload too large |
 | 16 | `LBRIDGE_ERROR_AUTHENTICATION_FAILED` | Decryption auth failed |
-| 17 | `LRBDIGE_ERROR_PROTOCOL_VIOLATION` | Protocol violation detected |
+| 17 | `LBRIDGE_ERROR_PROTOCOL_VIOLATION` | Protocol violation detected |
 | 18 | `LBRIDGE_ERROR_INVALID_RPC_ID` | Invalid RPC ID specified |
 | 255 | `LBRIDGE_ERROR_UNKNOWN` | Unknown error |
 
@@ -968,7 +961,7 @@ Sent in CLOSE frames to indicate why a connection was terminated.
 
 2. **Authentication tag** - The full 16-byte (128-bit) Poly1305 authentication tag is used, providing standard-level forgery resistance (2^128).
 
-3. **Replay protection** - Each session derives a unique encryption key from the PSK and random nonces exchanged during handshake (see [Session Key Derivation](#session-key-derivation)). Captured frames from a previous session cannot be replayed, since the session key will be different on each new connection. Within a session, the monotonic nonce counter prevents frame reuse.
+3. **Replay protection** - Each session exchanges random nonces during handshake to form a unique base nonce (see [Nonce Management](#nonce-management)). Captured frames from a previous session cannot be replayed, since the nonce base will be different on each new connection. Within a session, the monotonic nonce counter prevents frame reuse.
 
 4. **No forward secrecy** - Compromise of the pre-shared key allows decryption of all past and future messages.
 
