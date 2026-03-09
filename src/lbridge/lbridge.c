@@ -382,8 +382,8 @@ extern "C" {
 			mbedtls_chachapoly_update(&ctx, current_offset, out_data, out_data);
 			mbedtls_chachapoly_finish(&ctx, generated_tag);
 
-			// Compare received tag with generated tag
-			if (mbedtls_ct_memcmp(received_tag, generated_tag, 16) != 0)
+			// Compare the full authentication tag with the received tag
+			if (memcmp(out_data + pure_data_size, generated_tag, 16) != 0)
 			{
 				last_error = LBRIDGE_ERROR_AUTHENTICATION_FAILED;
 				goto lbl_return;
