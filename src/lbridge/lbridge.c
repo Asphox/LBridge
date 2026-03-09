@@ -309,7 +309,7 @@ extern "C" {
 						last_error = LBRIDGE_ERROR_INVALID_RPC_ID;
 						break;
 					default:
-						last_error = LRBDIGE_ERROR_PROTOCOL_VIOLATION;
+						last_error = LBRIDGE_ERROR_PROTOCOL_VIOLATION;
 						break;
 					}
 					goto lbl_return;
@@ -317,7 +317,7 @@ extern "C" {
 				else
 				{
 					// unexpected command frame
-					last_error = LRBDIGE_ERROR_PROTOCOL_VIOLATION;
+					last_error = LBRIDGE_ERROR_PROTOCOL_VIOLATION;
 					goto lbl_return;
 				}
 			}
@@ -383,7 +383,7 @@ extern "C" {
 			mbedtls_chachapoly_finish(&ctx, generated_tag);
 
 			// Compare the full authentication tag with the received tag
-			if (memcmp(out_data + pure_data_size, generated_tag, 16) != 0)
+			if (mbedtls_ct_memcmp(received_tag, generated_tag, 16) != 0)
 			{
 				last_error = LBRIDGE_ERROR_AUTHENTICATION_FAILED;
 				goto lbl_return;
